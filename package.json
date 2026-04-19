@@ -12,6 +12,7 @@
     "build:dashboard": "cd dashboard && npx vite build",
     "dev": "node esbuild.config.js --watch",
     "dev:dashboard": "cd dashboard && npx vite",
+    "prepublishOnly": "npm run build",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
@@ -32,6 +33,11 @@
     "type": "git",
     "url": "https://github.com/shami-ah/rasad"
   },
+  "files": [
+    "dist/cli.js",
+    "dashboard/dist/",
+    "README.md"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },
