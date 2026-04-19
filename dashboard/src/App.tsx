@@ -13,12 +13,12 @@ import { SearchPage } from "./pages/Search";
 import { useState } from "react";
 
 const NAV = [
-  { to: "/", icon: Telescope, label: "Overview" },
-  { to: "/timeline", icon: Layers, label: "Timeline" },
-  { to: "/karma", icon: BarChart3, label: "Token Karma" },
-  { to: "/compare", icon: Layers, label: "Model Compare" },
-  { to: "/drift", icon: AlertTriangle, label: "Drift Detector" },
-  { to: "/search", icon: Search, label: "Search" },
+  { to: "/", icon: Telescope, label: "Overview", hint: "Your AI activity summary" },
+  { to: "/timeline", icon: Layers, label: "All Sessions", hint: "Browse every session" },
+  { to: "/karma", icon: BarChart3, label: "Spending", hint: "Where your money goes" },
+  { to: "/compare", icon: Layers, label: "Models", hint: "Compare AI models" },
+  { to: "/drift", icon: AlertTriangle, label: "Drift", hint: "Pattern inconsistencies" },
+  { to: "/search", icon: Search, label: "Search", hint: "Find past conversations" },
 ];
 
 function Sidebar(): React.ReactElement {
@@ -34,43 +34,52 @@ function Sidebar(): React.ReactElement {
         <p className="text-[10px] text-zinc-600 mt-1">AI Observatory</p>
       </div>
       <nav className="flex-1 py-2 overflow-y-auto">
-        {NAV.map(({ to, icon: Icon, label }) => (
+        {NAV.map(({ to, icon: Icon, label, hint }) => (
           <NavLink
             key={to}
             to={to}
             end={to === "/"}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-4 py-2 text-sm transition-colors ${
+              `flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors ${
                 isActive ? "text-blue-400 bg-blue-500/10 border-r-2 border-blue-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
               }`
             }
+            title={hint}
           >
             <Icon size={16} />
-            {label}
+            <div>
+              <span>{label}</span>
+              <span className="block text-[9px] text-zinc-600 -mt-0.5">{hint}</span>
+            </div>
           </NavLink>
         ))}
 
         <div className="px-4 pt-4 pb-1">
-          <p className="text-[10px] text-zinc-600 uppercase tracking-wider font-medium">Session Tools</p>
+          <p className="text-[10px] text-zinc-600 uppercase tracking-wider font-medium">Deep Dive</p>
+          <p className="text-[9px] text-zinc-700 mt-0.5">Pick a session to analyze</p>
         </div>
         {[
-          { to: "/trajectory", icon: GitBranch, label: "Trajectory" },
-          { to: "/context", icon: Brain, label: "Ghost Context" },
-          { to: "/passport", icon: FileText, label: "Passport" },
-          { to: "/vibe-diff", icon: Diff, label: "Vibe Diff" },
-        ].map(({ to, icon: Icon, label }) => (
+          { to: "/trajectory", icon: GitBranch, label: "Trajectory", hint: "Step-by-step execution" },
+          { to: "/context", icon: Brain, label: "Memory", hint: "What the AI forgot" },
+          { to: "/passport", icon: FileText, label: "Summary", hint: "Session at a glance" },
+          { to: "/vibe-diff", icon: Diff, label: "Review", hint: "What the AI changed" },
+        ].map(({ to, icon: Icon, label, hint }) => (
           <NavLink
             key={to}
             to={to}
             className={() => {
               const isActive = location.pathname.startsWith(to);
-              return `flex items-center gap-2.5 px-4 py-2 text-sm transition-colors ${
+              return `flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors ${
                 isActive ? "text-blue-400 bg-blue-500/10 border-r-2 border-blue-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
               }`;
             }}
+            title={hint}
           >
             <Icon size={16} />
-            {label}
+            <div>
+              <span>{label}</span>
+              <span className="block text-[9px] text-zinc-600 -mt-0.5">{hint}</span>
+            </div>
           </NavLink>
         ))}
       </nav>

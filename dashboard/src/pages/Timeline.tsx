@@ -19,7 +19,8 @@ export function Timeline(): React.ReactElement {
 
   return (
     <div className="p-6">
-      <h1 className="text-xl font-bold mb-4">Timeline</h1>
+      <h1 className="text-xl font-bold">All Sessions</h1>
+      <p className="text-xs text-zinc-500 mt-1 mb-4">Click any session to see its summary. Hover for quick actions.</p>
 
       <div className="flex gap-2 mb-4">
         <select
