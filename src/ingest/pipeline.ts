@@ -2,6 +2,8 @@ import type Database from "better-sqlite3";
 import type { NormalizedSession } from "./types.js";
 import { discoverClaudeCodeFiles } from "./claude-code/discovery.js";
 import { parseClaudeCodeFile } from "./claude-code/parser.js";
+import { discoverGogaaFiles } from "./gogaa/discovery.js";
+import { parseGogaaFile } from "./gogaa/parser.js";
 import { isFileSynced, markFileSynced, deleteSession } from "../db/connection.js";
 
 interface SyncResult {
@@ -45,8 +47,9 @@ export async function runIngestion(
   for await (const file of discoverClaudeCodeFiles()) {
     files.push(file);
   }
-  // TODO: Add Gogaa discovery here
-  // for await (const file of discoverGogaaFiles()) { files.push(file); }
+  for await (const file of discoverGogaaFiles()) {
+    files.push(file);
+  }
 
   result.filesDiscovered = files.length;
 
@@ -110,7 +113,9 @@ export async function runIngestion(
 
     try {
       const { messages, toolUses, filesTouched, sessionMeta } =
-        await parseClaudeCodeFile(file);
+        file.source === "gogaa"
+          ? await parseGogaaFile(file)
+          : await parseClaudeCodeFile(file);
 
       if (messages.length === 0) {
         markFileSynced(db, file.path, file.source, file.mtime, file.size);

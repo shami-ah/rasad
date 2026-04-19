@@ -17,15 +17,25 @@ export function decodeProjectDir(dirName: string): string {
 export async function* discoverClaudeCodeFiles(): AsyncGenerator<SourceFile> {
   if (!existsSync(CC_BASE)) return;
 
-  const projectDirs = readdirSync(CC_BASE, { withFileTypes: true })
-    .filter((d) => d.isDirectory());
+  let projectDirs;
+  try {
+    projectDirs = readdirSync(CC_BASE, { withFileTypes: true })
+      .filter((d) => d.isDirectory());
+  } catch {
+    return; // permission error or other FS issue
+  }
 
   for (const projectDir of projectDirs) {
     const projectPath = join(CC_BASE, projectDir.name);
     const project = decodeProjectDir(projectDir.name);
 
     // Top-level JSONL files are sessions
-    const entries = readdirSync(projectPath, { withFileTypes: true });
+    let entries;
+    try {
+      entries = readdirSync(projectPath, { withFileTypes: true });
+    } catch {
+      continue; // skip unreadable project dirs
+    }
 
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;

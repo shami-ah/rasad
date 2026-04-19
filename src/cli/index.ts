@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 const program = new Command();
 
@@ -6,6 +9,24 @@ program
   .name("rasad")
   .description("AI Observatory — monitor what your AI coding assistant is actually doing")
   .version("0.1.0");
+
+// First-run detection: auto-sync if no DB exists
+program.hook("preAction", async (thisCommand) => {
+  const cmdName = thisCommand.args[0];
+  if (cmdName === "sync") return; // don't double-sync
+
+  const dbPath = join(homedir(), ".rasad", "rasad.db");
+  if (!existsSync(dbPath)) {
+    const chalk = (await import("chalk")).default;
+    console.log("");
+    console.log(chalk.bold("  Welcome to Rasad!"));
+    console.log(chalk.dim("  First run detected — syncing your AI sessions..."));
+    console.log("");
+
+    const { runSync } = await import("./commands/sync.js");
+    await runSync({});
+  }
+});
 
 program
   .command("sync")
