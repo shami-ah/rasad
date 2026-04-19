@@ -1,8 +1,10 @@
 import chalk from "chalk";
+import { writeFileSync } from "node:fs";
 import { getDb, closeDb } from "../../db/connection.js";
 import { generateVibeDiff } from "../../analysis/vibe-diff.js";
+import { exportVibeDiffMarkdown } from "../../analysis/export.js";
 
-export async function runVibeDiff(sessionId: string, opts: { json?: boolean }): Promise<void> {
+export async function runVibeDiff(sessionId: string, opts: { json?: boolean; md?: boolean }): Promise<void> {
   const db = getDb();
   try {
     const resolved = db.prepare("SELECT id FROM sessions WHERE id LIKE ? LIMIT 1").get(`${sessionId}%`) as { id: string } | undefined;
@@ -19,6 +21,16 @@ export async function runVibeDiff(sessionId: string, opts: { json?: boolean }): 
 
     if (opts.json) {
       console.log(JSON.stringify(diff, null, 2));
+      return;
+    }
+
+    if (opts.md) {
+      const md = exportVibeDiffMarkdown(db, resolved.id);
+      if (md) {
+        const filename = `vibe-diff-${sessionId.slice(0, 8)}.md`;
+        writeFileSync(filename, md);
+        console.log(chalk.green(`\n  Exported to ${filename}\n`));
+      }
       return;
     }
 

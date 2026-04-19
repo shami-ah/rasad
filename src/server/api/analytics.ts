@@ -6,6 +6,7 @@ import { generatePassport } from "../../analysis/session-passport.js";
 import { detectDrift } from "../../analysis/drift-detector.js";
 import { generateVibeDiff } from "../../analysis/vibe-diff.js";
 import { compareModels } from "../../analysis/model-compare.js";
+import { exportPassportMarkdown, exportVibeDiffMarkdown } from "../../analysis/export.js";
 
 export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Database): void {
   // Token Karma
@@ -59,6 +60,30 @@ export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Datab
       project: query.project,
       since: query.since,
     });
+  });
+
+  // Export passport as Markdown
+  app.get("/api/export/passport/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const resolved = db.prepare("SELECT id FROM sessions WHERE id LIKE ?").get(`${id}%`) as { id: string } | undefined;
+    if (!resolved) return { error: "Session not found" };
+    const md = exportPassportMarkdown(db, resolved.id);
+    if (!md) return { error: "Failed to generate" };
+    reply.header("Content-Type", "text/markdown");
+    reply.header("Content-Disposition", `attachment; filename="passport-${id.slice(0, 8)}.md"`);
+    return md;
+  });
+
+  // Export vibe diff as Markdown
+  app.get("/api/export/vibe-diff/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const resolved = db.prepare("SELECT id FROM sessions WHERE id LIKE ?").get(`${id}%`) as { id: string } | undefined;
+    if (!resolved) return { error: "Session not found" };
+    const md = exportVibeDiffMarkdown(db, resolved.id);
+    if (!md) return { error: "Failed to generate" };
+    reply.header("Content-Type", "text/markdown");
+    reply.header("Content-Disposition", `attachment; filename="vibe-diff-${id.slice(0, 8)}.md"`);
+    return md;
   });
 
   // Overview stats (for dashboard home)

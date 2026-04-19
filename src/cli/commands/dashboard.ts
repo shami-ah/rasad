@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { startServer } from "../../server/index.js";
+import { startServer, broadcastEvent } from "../../server/index.js";
 import { getDb } from "../../db/connection.js";
 import { startWatcher } from "../../ingest/watcher.js";
 
@@ -21,6 +21,7 @@ export async function runDashboard(opts: { port?: string; open?: boolean }): Pro
       onSync: (file) => {
         const short = file.split("/").slice(-2).join("/");
         console.log(chalk.dim(`  [sync] ${short}`));
+        broadcastEvent({ type: "session_updated", data: { file: short } });
       },
     });
 

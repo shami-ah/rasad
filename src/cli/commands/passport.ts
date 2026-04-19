@@ -1,8 +1,10 @@
 import chalk from "chalk";
+import { writeFileSync } from "node:fs";
 import { getDb, closeDb } from "../../db/connection.js";
 import { generatePassport } from "../../analysis/session-passport.js";
+import { exportPassportMarkdown } from "../../analysis/export.js";
 
-export async function runPassport(sessionId: string, opts: { json?: boolean }): Promise<void> {
+export async function runPassport(sessionId: string, opts: { json?: boolean; md?: boolean }): Promise<void> {
   const db = getDb();
   try {
     const resolved = db.prepare("SELECT id FROM sessions WHERE id LIKE ? LIMIT 1").get(`${sessionId}%`) as { id: string } | undefined;
@@ -19,6 +21,16 @@ export async function runPassport(sessionId: string, opts: { json?: boolean }): 
 
     if (opts.json) {
       console.log(JSON.stringify(passport, null, 2));
+      return;
+    }
+
+    if (opts.md) {
+      const md = exportPassportMarkdown(db, resolved.id);
+      if (md) {
+        const filename = `passport-${sessionId.slice(0, 8)}.md`;
+        writeFileSync(filename, md);
+        console.log(chalk.green(`\n  Exported to ${filename}\n`));
+      }
       return;
     }
 

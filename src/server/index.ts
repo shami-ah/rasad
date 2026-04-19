@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
+import fastifyWebsocket from "@fastify/websocket";
 import { join, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -8,8 +9,24 @@ import { registerSessionRoutes } from "./api/sessions.js";
 import { registerAnalyticsRoutes } from "./api/analytics.js";
 import { registerSearchRoutes } from "./api/search.js";
 import { registerTrajectoryRoutes } from "./api/trajectory.js";
+import type { WebSocket } from "ws";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Connected WebSocket clients for live updates
+const wsClients = new Set<WebSocket>();
+
+/** Broadcast an event to all connected dashboard clients */
+export function broadcastEvent(event: { type: string; data?: unknown }): void {
+  const msg = JSON.stringify(event);
+  for (const client of wsClients) {
+    if (client.readyState === 1) { // OPEN
+      client.send(msg);
+    } else {
+      wsClients.delete(client);
+    }
+  }
+}
 
 export async function startServer(port: number = 9847): Promise<string> {
   const app = Fastify({ logger: false });
@@ -24,6 +41,18 @@ export async function startServer(port: number = 9847): Promise<string> {
     }
   });
 
+  // WebSocket support
+  await app.register(fastifyWebsocket);
+
+  app.get("/ws", { websocket: true }, (socket) => {
+    wsClients.add(socket);
+    socket.send(JSON.stringify({ type: "connected", data: { clients: wsClients.size } }));
+
+    socket.on("close", () => {
+      wsClients.delete(socket);
+    });
+  });
+
   // Initialize DB
   const db = getDb();
 
@@ -34,11 +63,10 @@ export async function startServer(port: number = 9847): Promise<string> {
   registerTrajectoryRoutes(app, db);
 
   // Serve dashboard static files if built
-  // Try multiple paths since bundled CLI runs from dist/
   const possiblePaths = [
-    join(__dirname, "..", "dashboard", "dist"),       // from dist/cli.js
-    join(__dirname, "..", "..", "dashboard", "dist"),  // from src/server/
-    join(process.cwd(), "dashboard", "dist"),          // from project root
+    join(__dirname, "..", "dashboard", "dist"),
+    join(__dirname, "..", "..", "dashboard", "dist"),
+    join(process.cwd(), "dashboard", "dist"),
   ];
   const dashboardDir = possiblePaths.find((p) => existsSync(p)) ?? join(__dirname, "..", "dashboard", "dist");
   if (existsSync(dashboardDir)) {
@@ -48,7 +76,6 @@ export async function startServer(port: number = 9847): Promise<string> {
       wildcard: true,
     });
 
-    // SPA fallback
     app.setNotFoundHandler((_request, reply) => {
       reply.sendFile("index.html");
     });

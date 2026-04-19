@@ -10,7 +10,7 @@ import { DriftDetector } from "./pages/DriftDetector";
 import { VibeDiffPage } from "./pages/VibeDiff";
 import { ModelCompare } from "./pages/ModelCompare";
 import { SearchPage } from "./pages/Search";
-import { useState } from "react";
+import { useLiveUpdates } from "./hooks/useLive";
 
 const NAV = [
   { to: "/", icon: Telescope, label: "Overview", hint: "Your AI activity summary" },
@@ -91,6 +91,8 @@ function Sidebar(): React.ReactElement {
 }
 
 export function App(): React.ReactElement {
+  useLiveUpdates();
+
   return (
     <BrowserRouter>
       <div className="flex">

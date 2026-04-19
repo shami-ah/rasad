@@ -28,6 +28,12 @@ program.hook("preAction", async (thisCommand) => {
   }
 });
 
+// Default action: no subcommand → show summary + open dashboard
+program.action(async () => {
+  const { runDefault } = await import("./commands/default.js");
+  await runDefault();
+});
+
 program
   .command("sync")
   .description("Ingest/re-sync session data from Claude Code and Gogaa")
@@ -85,6 +91,7 @@ program
   .command("passport <sessionId>")
   .description("Session Passport — auto-generated session summary")
   .option("--json", "Output as JSON")
+  .option("--md", "Export as Markdown file")
   .action(async (sessionId: string, opts) => {
     const { runPassport } = await import("./commands/passport.js");
     await runPassport(sessionId, opts);
@@ -104,6 +111,7 @@ program
   .command("vibe-diff <sessionId>")
   .description("Vibe Diff — reviewable artifact of what AI did in a session")
   .option("--json", "Output as JSON")
+  .option("--md", "Export as Markdown file")
   .action(async (sessionId: string, opts) => {
     const { runVibeDiff } = await import("./commands/vibe-diff.js");
     await runVibeDiff(sessionId, opts);
