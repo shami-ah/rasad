@@ -128,6 +128,17 @@ program
   });
 
 program
+  .command("summarize <sessionId>")
+  .description("AI Summary — generate an intelligent session summary using Claude")
+  .option("--api-key <key>", "Anthropic API key (or set ANTHROPIC_API_KEY env)")
+  .option("--json", "Output as JSON")
+  .option("--md", "Export as Markdown file")
+  .action(async (sessionId: string, opts) => {
+    const { runSummarize } = await import("./commands/summarize.js");
+    await runSummarize(sessionId, opts);
+  });
+
+program
   .command("dashboard")
   .description("Launch the web dashboard")
   .option("-p, --port <port>", "Port number", "9847")
