@@ -38,7 +38,7 @@ export async function runSummarize(
       // Terminal output
       console.log("");
       console.log(chalk.bold("  AI Session Summary"));
-      console.log(chalk.dim(`  ${resolved.id}`));
+      console.log(chalk.dim(`  ${resolved.id} — via ${summary.provider}/${summary.model}`));
       console.log("");
       console.log(`  ${chalk.white(summary.summary)}`);
       console.log("");
