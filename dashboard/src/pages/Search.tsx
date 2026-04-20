@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useNavigate } from "react-router-dom";
+import { PageHeader } from "../components/Loading";
 
 export function SearchPage(): React.ReactElement {
   const navigate = useNavigate();
@@ -16,7 +17,7 @@ export function SearchPage(): React.ReactElement {
 
   return (
     <div className="p-6">
-      <h1 className="text-xl font-bold mb-4">Search</h1>
+      <PageHeader title="Search" description="Full-text search across all your AI sessions." />
 
       <form
         onSubmit={(e) => { e.preventDefault(); setSubmitted(query); }}

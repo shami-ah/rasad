@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { StatCard, SectionHeader } from "../components/StatCard";
+import { Loading, PageHeader } from "../components/Loading";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const COLORS = ["#3b82f6", "#eab308", "#10b981", "#8b5cf6", "#ef4444", "#06b6d4", "#f97316", "#ec4899"];
@@ -8,17 +9,14 @@ const COLORS = ["#3b82f6", "#eab308", "#10b981", "#8b5cf6", "#ef4444", "#06b6d4"
 export function TokenKarma(): React.ReactElement {
   const { data, isLoading } = useQuery({ queryKey: ["karma"], queryFn: () => api.karma() });
 
-  if (isLoading || !data) return <div className="p-6 text-zinc-500">Loading...</div>;
+  if (isLoading || !data) return <Loading message="Crunching your spending data..." />;
 
   // Filter out $0 projects
   const meaningfulProjects = data.topProjects.filter((p) => p.totalCost > 0);
 
   return (
     <div className="p-6 space-y-8">
-      <div>
-        <h1 className="text-xl font-bold">Token Karma</h1>
-        <p className="text-xs text-zinc-500 mt-1">Understanding where your AI budget goes</p>
-      </div>
+      <PageHeader title="Token Karma" description="Understanding where your AI budget goes" />
 
       {/* Key stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

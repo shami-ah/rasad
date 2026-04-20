@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { Loading, PageHeader } from "../components/Loading";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export function ModelCompare(): React.ReactElement {
   const { data, isLoading } = useQuery({ queryKey: ["compare"], queryFn: () => api.compare() });
 
-  if (isLoading || !data) return <div className="p-6 text-zinc-500">Loading...</div>;
+  if (isLoading || !data) return <Loading message="Comparing models..." />;
 
   const chartData = data.models.map((m) => ({
     model: m.model.replace("claude-", "").slice(0, 12),
@@ -17,7 +18,7 @@ export function ModelCompare(): React.ReactElement {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-xl font-bold">Model Comparison</h1>
+      <PageHeader title="Model Comparison" description="Compare AI models by cost, efficiency, cache hit rate, and session duration." />
 
       {/* Model cards */}
       <div className="grid lg:grid-cols-3 gap-4">

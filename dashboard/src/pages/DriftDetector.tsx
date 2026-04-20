@@ -1,16 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { Loading, PageHeader, EmptyState } from "../components/Loading";
 
 export function DriftDetector(): React.ReactElement {
   const { data, isLoading } = useQuery({ queryKey: ["drift"], queryFn: () => api.drift() });
 
-  if (isLoading || !data) return <div className="p-6 text-zinc-500">Loading...</div>;
+  if (isLoading || !data) return <Loading message="Scanning for pattern drift..." />;
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-xl font-bold">Drift Detector</h1>
+      <PageHeader title="Drift Detector" description="Find AI-generated pattern inconsistencies across your projects." />
 
-      {data.length === 0 && <p className="text-sm text-zinc-500">No drift detected across projects.</p>}
+      {data.length === 0 && <EmptyState icon="OK" title="No drift detected" description="Your AI-generated code patterns are consistent across projects." />}
 
       {data.map((report) => (
         <div key={report.project} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
