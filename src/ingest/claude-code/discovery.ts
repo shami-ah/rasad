@@ -5,12 +5,17 @@ import type { SourceFile } from "../types.js";
 
 const CC_BASE = join(homedir(), ".claude", "projects");
 
-/** Decode Claude Code's directory name back to a project path */
+/** Decode Claude Code's directory name back to a project path.
+ *  CC encodes paths as: /Users/shami/gogaa-ts → -Users-shami-gogaa-ts
+ *  Since hyphens appear in real directory names, we use the last component
+ *  as a best-effort project label. The actual cwd from JSONL entries is
+ *  used as the authoritative path during parsing.
+ */
 export function decodeProjectDir(dirName: string): string {
-  // "-Users-shami-gogaa-ts" → "/Users/shami/gogaa-ts"
-  // "-root-Work" → "/root/Work"
   if (!dirName.startsWith("-")) return dirName;
-  return dirName.replace(/^-/, "/").replace(/-/g, "/");
+  // Use the raw directory name as project label — the parser will override
+  // with the actual cwd from the JSONL data which is unambiguous.
+  return dirName.slice(1); // strip leading dash, keep rest as-is
 }
 
 /** Discover all Claude Code session JSONL files */

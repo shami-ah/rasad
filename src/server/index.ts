@@ -31,9 +31,19 @@ export function broadcastEvent(event: { type: string; data?: unknown }): void {
 export async function startServer(port: number = 9847): Promise<string> {
   const app = Fastify({ logger: false });
 
-  // CORS for local dashboard dev
+  // CORS — restrict to local origins only (dashboard dev server + served dashboard)
+  const ALLOWED_ORIGINS = new Set([
+    "http://127.0.0.1:9847",
+    "http://localhost:9847",
+    "http://127.0.0.1:5173", // Vite dev server
+    "http://localhost:5173",
+  ]);
+
   app.addHook("onRequest", async (request, reply) => {
-    reply.header("Access-Control-Allow-Origin", "*");
+    const origin = request.headers.origin ?? "";
+    if (ALLOWED_ORIGINS.has(origin)) {
+      reply.header("Access-Control-Allow-Origin", origin);
+    }
     reply.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     reply.header("Access-Control-Allow-Headers", "Content-Type");
     if (request.method === "OPTIONS") {

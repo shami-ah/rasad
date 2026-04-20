@@ -119,7 +119,7 @@ $ rasad search "authentication"
 
 - **Zero outbound network requests** — the binary literally cannot phone home
 - **All data stays at `~/.rasad/`** — local SQLite database
-- **No telemetry, no analytics, no cloud**
+- **No telemetry, no tracking, no cloud** (the optional `rasad summarize` command calls your configured LLM provider)
 - **Server binds to 127.0.0.1 only** — no network exposure
 
 ## Tech Stack

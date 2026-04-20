@@ -40,13 +40,14 @@ export function closeDb(): void {
   }
 }
 
-/** Check if a file has been synced and hasn't changed */
+/** Check if a file has been synced and hasn't changed (files that failed are re-tried) */
 export function isFileSynced(db: Database.Database, filePath: string, mtime: number, size: number): boolean {
   const row = db.prepare(
-    "SELECT file_mtime, file_size FROM sync_state WHERE file_path = ?"
-  ).get(filePath) as { file_mtime: number; file_size: number } | undefined;
+    "SELECT file_mtime, file_size, error_count FROM sync_state WHERE file_path = ?"
+  ).get(filePath) as { file_mtime: number; file_size: number; error_count: number } | undefined;
 
   if (!row) return false;
+  if (row.error_count > 0) return false; // retry failed files
   return row.file_mtime === mtime && row.file_size === size;
 }
 
