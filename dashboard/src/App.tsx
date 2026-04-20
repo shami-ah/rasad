@@ -10,6 +10,9 @@ import { DriftDetector } from "./pages/DriftDetector";
 import { VibeDiffPage } from "./pages/VibeDiff";
 import { ModelCompare } from "./pages/ModelCompare";
 import { SearchPage } from "./pages/Search";
+import { Recommend } from "./pages/Recommend";
+import { Quality } from "./pages/Quality";
+import { Wrapped } from "./pages/Wrapped";
 import { useLiveUpdates } from "./hooks/useLive";
 
 const NAV = [
@@ -17,6 +20,9 @@ const NAV = [
   { to: "/timeline", icon: Layers, label: "All Sessions", hint: "Browse every session" },
   { to: "/karma", icon: BarChart3, label: "Spending", hint: "Where your money goes" },
   { to: "/compare", icon: Layers, label: "Models", hint: "Compare AI models" },
+  { to: "/recommend", icon: AlertTriangle, label: "Savings", hint: "Tips to reduce cost" },
+  { to: "/quality", icon: BarChart3, label: "Quality", hint: "Session grades A-F" },
+  { to: "/wrapped", icon: Telescope, label: "Wrapped", hint: "Shareable stats card" },
   { to: "/drift", icon: AlertTriangle, label: "Drift", hint: "Pattern inconsistencies" },
   { to: "/search", icon: Search, label: "Search", hint: "Find past conversations" },
 ];
@@ -112,6 +118,9 @@ export function App(): React.ReactElement {
             <Route path="/vibe-diff" element={<VibeDiffPage />} />
             <Route path="/vibe-diff/:id" element={<VibeDiffPage />} />
             <Route path="/compare" element={<ModelCompare />} />
+            <Route path="/recommend" element={<Recommend />} />
+            <Route path="/quality" element={<Quality />} />
+            <Route path="/wrapped" element={<Wrapped />} />
             <Route path="/search" element={<SearchPage />} />
           </Routes>
         </main>
