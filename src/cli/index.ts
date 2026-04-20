@@ -169,6 +169,14 @@ program
   });
 
 program
+  .command("setup [target]")
+  .description("Install integrations — hooks (CC auto-summary), shell (terminal startup stats)")
+  .action(async (target?: string) => {
+    const { runSetup } = await import("./commands/setup.js");
+    await runSetup(target);
+  });
+
+program
   .command("sources")
   .description("Show detected AI tools and their adapter status")
   .action(async () => {
