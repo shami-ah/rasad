@@ -1,11 +1,12 @@
 import { Command } from "commander";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
-import { createRequire } from "node:module";
-const require = createRequire(import.meta.url);
-const pkg = require("../../package.json") as { version: string };
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string };
 
 const program = new Command();
 

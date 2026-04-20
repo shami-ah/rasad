@@ -4,6 +4,8 @@ const isWatch = process.argv.includes("--watch");
 
 const config = {
   entryPoints: ["src/cli/index.ts"],
+  jsx: "automatic",
+  loader: { ".tsx": "tsx", ".ts": "ts" },
   bundle: true,
   platform: "node",
   target: "node18",
@@ -11,12 +13,17 @@ const config = {
   outfile: "dist/cli.js",
   sourcemap: true,
   banner: {
-    js: '#!/usr/bin/env node\nimport { createRequire } from "module"; const require = createRequire(import.meta.url);',
+    js: '#!/usr/bin/env node\nimport { createRequire as __cjsReq } from "module"; const require = __cjsReq(import.meta.url);',
   },
   external: [
     "better-sqlite3",
     "chokidar",
     "fsevents",
+    "react",
+    "react/jsx-runtime",
+    "ink",
+    "ink-spinner",
+    "yoga-wasm-web",
   ],
   define: {
     "process.env.NODE_ENV": '"production"',
