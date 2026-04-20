@@ -4,6 +4,16 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { getContextWindow } from "../../analysis/pricing.js";
 
+/** A single observable event in the session timeline. */
+export interface LiveEvent {
+  time: string;       // HH:MM:SS
+  type: "tool" | "user" | "assistant" | "system";
+  icon: string;       // visual icon for the event
+  label: string;      // human-readable short label
+  detail: string;     // file path, command preview, or message preview
+  toolName?: string;  // raw tool name if type=tool
+}
+
 export interface LiveStats {
   sessionId: string;
   project: string;
@@ -29,6 +39,16 @@ export interface LiveStats {
   retryCount: number;
   sessionDuration: number;
   isActive: boolean;
+  /** Chronological event feed — most recent last. Max 30 kept. */
+  events: LiveEvent[];
+  /** Estimated cost if the session continues at current rate (projected total). */
+  projectedCost: number;
+  /** Cost per minute average. */
+  costPerMinute: number;
+  /** What Sonnet would cost for the same tokens. */
+  sonnetEquivalentCost: number;
+  /** Current phase detection: "exploring", "coding", "testing", "idle" */
+  phase: string;
 }
 
 const EMPTY_STATS: LiveStats = {
@@ -56,7 +76,76 @@ const EMPTY_STATS: LiveStats = {
   retryCount: 0,
   sessionDuration: 0,
   isActive: false,
+  events: [],
+  projectedCost: 0,
+  costPerMinute: 0,
+  sonnetEquivalentCost: 0,
+  phase: "idle",
 };
+
+const TOOL_HUMAN: Record<string, { icon: string; label: string }> = {
+  Bash:       { icon: "$", label: "Running command" },
+  Read:       { icon: " ", label: "Reading" },
+  Edit:       { icon: " ", label: "Editing" },
+  Write:      { icon: " ", label: "Creating" },
+  Grep:       { icon: " ", label: "Searching" },
+  Glob:       { icon: " ", label: "Finding files" },
+  Agent:      { icon: " ", label: "Launching agent" },
+  WebFetch:   { icon: " ", label: "Fetching web" },
+  WebSearch:  { icon: " ", label: "Searching web" },
+  TaskCreate: { icon: " ", label: "Creating task" },
+  TaskUpdate: { icon: " ", label: "Updating task" },
+  Skill:      { icon: " ", label: "Running skill" },
+};
+
+function extractToolDetail(_name: string, input: Record<string, unknown> | undefined): string {
+  if (!input) return "";
+  if (typeof input.file_path === "string") {
+    return (input.file_path as string).split("/").slice(-2).join("/");
+  }
+  if (typeof input.command === "string") {
+    return (input.command as string).slice(0, 60);
+  }
+  if (typeof input.pattern === "string") {
+    return `"${(input.pattern as string).slice(0, 40)}"`;
+  }
+  if (typeof input.query === "string") {
+    return `"${(input.query as string).slice(0, 40)}"`;
+  }
+  if (typeof input.prompt === "string") {
+    return (input.prompt as string).slice(0, 50);
+  }
+  if (typeof input.description === "string") {
+    return (input.description as string).slice(0, 50);
+  }
+  if (typeof input.subject === "string") {
+    return (input.subject as string).slice(0, 50);
+  }
+  return "";
+}
+
+function detectPhase(toolBreakdown: Map<string, number>, lastTools: string[]): string {
+  // Look at last 5 tools to detect current phase
+  const recent = lastTools.slice(-5);
+  const readSearch = recent.filter((t) => ["Read", "Grep", "Glob"].includes(t)).length;
+  const writeEdit = recent.filter((t) => ["Write", "Edit"].includes(t)).length;
+  const bash = recent.filter((t) => t === "Bash").length;
+
+  if (bash >= 3) return "testing";
+  if (writeEdit >= 2) return "coding";
+  if (readSearch >= 3) return "exploring";
+  if (recent.length === 0) return "thinking";
+
+  // Fallback: look at overall distribution
+  const totalRead = (toolBreakdown.get("Read") ?? 0) + (toolBreakdown.get("Grep") ?? 0) + (toolBreakdown.get("Glob") ?? 0);
+  const totalWrite = (toolBreakdown.get("Write") ?? 0) + (toolBreakdown.get("Edit") ?? 0);
+  const totalBash = toolBreakdown.get("Bash") ?? 0;
+  const total = totalRead + totalWrite + totalBash;
+  if (total === 0) return "thinking";
+  if (totalBash / total > 0.5) return "testing";
+  if (totalWrite / total > 0.3) return "coding";
+  return "exploring";
+}
 
 function findActiveSession(): { path: string; project: string; sessionId: string } | null {
   const ccBase = join(homedir(), ".claude", "projects");
@@ -81,7 +170,7 @@ function findActiveSession(): { path: string; project: string; sessionId: string
             };
           }
         }
-      } catch { /* skip unreadable dirs */ }
+      } catch { /* skip */ }
     }
   } catch { /* skip */ }
   return newest;
@@ -109,6 +198,8 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
   let lastUserMessage = "";
   let lastToolCall = "";
   const editCounts = new Map<string, number>();
+  const events: LiveEvent[] = [];
+  const recentToolNames: string[] = [];
 
   for (const line of lines) {
     try {
@@ -122,11 +213,21 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
       messageCount++;
       lastTimestamp = (entry.timestamp as string) ?? "";
       if (!firstTimestamp) firstTimestamp = lastTimestamp;
+      const time = lastTimestamp.slice(11, 19) || "--:--:--";
 
       if (role === "user") {
         userMessages++;
         const text = typeof message.content === "string" ? message.content : "";
-        if (text.length > 0) lastUserMessage = text.slice(0, 80);
+        if (text.length > 0) {
+          lastUserMessage = text.slice(0, 80);
+          events.push({
+            time,
+            type: "user",
+            icon: ">",
+            label: "You asked",
+            detail: text.slice(0, 70),
+          });
+        }
       }
 
       if (role === "assistant") {
@@ -152,7 +253,20 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
               const name = (b.name as string) ?? "unknown";
               toolBreakdown.set(name, (toolBreakdown.get(name) ?? 0) + 1);
               lastToolCall = name;
+              recentToolNames.push(name);
               const input = b.input as Record<string, unknown> | undefined;
+              const detail = extractToolDetail(name, input);
+
+              const humanTool = TOOL_HUMAN[name];
+              events.push({
+                time,
+                type: "tool",
+                icon: humanTool?.icon ?? "?",
+                label: humanTool?.label ?? name,
+                detail,
+                toolName: name,
+              });
+
               if (input && typeof input.file_path === "string") {
                 const fp = (input.file_path as string).split("/").slice(-2).join("/");
                 if (name === "Read") filesRead.add(fp);
@@ -166,7 +280,7 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
           }
         }
       }
-    } catch { /* skip malformed lines */ }
+    } catch { /* skip */ }
   }
 
   const contextMax = getContextWindow(model);
@@ -191,6 +305,12 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
     (outputTokens / 1_000_000) * outputRate +
     (cacheReadTokens / 1_000_000) * (inputRate / 10);
 
+  // Sonnet equivalent cost
+  const sonnetEquivalentCost =
+    (inputTokens / 1_000_000) * 3 +
+    (outputTokens / 1_000_000) * 15 +
+    (cacheReadTokens / 1_000_000) * 0.3;
+
   let retryCount = 0;
   for (const count of editCounts.values()) {
     if (count >= 3) retryCount++;
@@ -200,6 +320,14 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
     firstTimestamp && lastTimestamp
       ? new Date(lastTimestamp).getTime() - new Date(firstTimestamp).getTime()
       : 0;
+
+  // Cost projections
+  const durationMinutes = sessionDuration / 60_000;
+  const costPerMinute = durationMinutes > 0 ? estimatedCost / durationMinutes : 0;
+  // Project: assume session lasts 2x current duration
+  const projectedCost = estimatedCost + costPerMinute * Math.max(10, durationMinutes * 0.5);
+
+  const phase = detectPhase(toolBreakdown, recentToolNames);
 
   return {
     sessionId: sessionId.slice(0, 8),
@@ -226,6 +354,11 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
     retryCount,
     sessionDuration,
     isActive: true,
+    events: events.slice(-30),
+    projectedCost,
+    costPerMinute,
+    sonnetEquivalentCost,
+    phase,
   };
 }
 

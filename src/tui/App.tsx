@@ -39,6 +39,7 @@ export function App({ onExit }: Props): React.ReactElement {
           <ActivityFeed
             toolBreakdown={stats.toolBreakdown}
             lastToolCall={stats.lastToolCall}
+            events={stats.events}
             maxItems={20}
           />
         )}
