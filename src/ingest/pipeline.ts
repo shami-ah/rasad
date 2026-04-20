@@ -4,6 +4,8 @@ import { discoverClaudeCodeFiles } from "./claude-code/discovery.js";
 import { parseClaudeCodeFile } from "./claude-code/parser.js";
 import { discoverGogaaFiles } from "./gogaa/discovery.js";
 import { parseGogaaFile } from "./gogaa/parser.js";
+import { discoverCodexFiles } from "./codex/discovery.js";
+import { parseCodexFile } from "./codex/parser.js";
 import { isFileSynced, markFileSynced, deleteSession } from "../db/connection.js";
 
 interface SyncResult {
@@ -48,6 +50,9 @@ export async function runIngestion(
     files.push(file);
   }
   for await (const file of discoverGogaaFiles()) {
+    files.push(file);
+  }
+  for await (const file of discoverCodexFiles()) {
     files.push(file);
   }
 
@@ -115,7 +120,9 @@ export async function runIngestion(
       const { messages, toolUses, filesTouched, sessionMeta } =
         file.source === "gogaa"
           ? await parseGogaaFile(file)
-          : await parseClaudeCodeFile(file);
+          : file.source === "codex"
+            ? await parseCodexFile(file)
+            : await parseClaudeCodeFile(file);
 
       if (messages.length === 0) {
         markFileSynced(db, file.path, file.source, file.mtime, file.size);

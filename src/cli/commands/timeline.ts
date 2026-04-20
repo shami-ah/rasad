@@ -78,14 +78,15 @@ export async function runTimeline(opts: TimelineOpts): Promise<void> {
     });
 
     for (const row of rows) {
-      const sourceColor = row.source === "claude-code" ? chalk.blue : chalk.green;
+      const sourceColor = row.source === "claude-code" ? chalk.blue :
+        row.source === "codex" ? chalk.magenta : chalk.green;
       const totalTokens = row.total_input_tokens + row.total_output_tokens + row.total_cache_read_tokens;
       const date = row.started_at.slice(0, 10);
       const shortId = row.id.slice(0, 12);
       const projectShort = row.project.split("/").pop() ?? row.project;
 
       table.push([
-        sourceColor(row.source === "claude-code" ? "CC" : "Gogaa"),
+        sourceColor(row.source === "claude-code" ? "CC" : row.source === "codex" ? "Codex" : "Gogaa"),
         chalk.white(projectShort.slice(0, 18)),
         chalk.dim(row.model?.replace("claude-", "").slice(0, 14) ?? "—"),
         chalk.dim(date),

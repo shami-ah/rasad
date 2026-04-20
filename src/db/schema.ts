@@ -8,7 +8,7 @@ export const SCHEMA_SQL = `
 
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
-    source TEXT NOT NULL CHECK(source IN ('claude-code', 'gogaa')),
+    source TEXT NOT NULL CHECK(source IN ('claude-code', 'gogaa', 'codex')),
     project TEXT NOT NULL,
     cwd TEXT NOT NULL,
     git_branch TEXT,

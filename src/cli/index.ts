@@ -165,6 +165,14 @@ program
   });
 
 program
+  .command("sources")
+  .description("Show detected AI tools and their adapter status")
+  .action(async () => {
+    const { runSources } = await import("./commands/sources.js");
+    await runSources();
+  });
+
+program
   .command("watch")
   .description("Live Monitor — watch your active CC session in real-time")
   .action(async () => {
