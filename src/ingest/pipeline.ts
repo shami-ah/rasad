@@ -1,12 +1,12 @@
 import type Database from "better-sqlite3";
-import type { NormalizedSession } from "./types.js";
 import { discoverClaudeCodeFiles } from "./claude-code/discovery.js";
 import { parseClaudeCodeFile } from "./claude-code/parser.js";
 import { discoverGogaaFiles } from "./gogaa/discovery.js";
 import { parseGogaaFile } from "./gogaa/parser.js";
 import { discoverCodexFiles } from "./codex/discovery.js";
 import { parseCodexFile } from "./codex/parser.js";
-import { isFileSynced, markFileSynced, deleteSession } from "../db/connection.js";
+import { isFileSynced, markFileSynced } from "../db/connection.js";
+import { insertParsedSession } from "../db/insert.js";
 
 interface SyncResult {
   filesDiscovered: number;
@@ -65,47 +65,7 @@ export async function runIngestion(
 
   result.filesSkipped = result.filesDiscovered - toProcess.length;
 
-  // Phase 3: Process files in batches
-  const insertSession = db.prepare(`
-    INSERT OR REPLACE INTO sessions (
-      id, source, project, cwd, git_branch, model,
-      started_at, ended_at, message_count,
-      total_input_tokens, total_output_tokens,
-      total_cache_creation_tokens, total_cache_read_tokens,
-      estimated_cost_usd, summary, version, entrypoint,
-      file_path, file_mtime, file_size
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?,
-      ?, ?, ?,
-      ?, ?,
-      ?, ?,
-      ?, ?, ?, ?,
-      ?, ?, ?
-    )
-  `);
-
-  const insertMessage = db.prepare(`
-    INSERT OR IGNORE INTO messages (
-      session_id, uuid, parent_uuid, role,
-      content_text, content_json, model,
-      input_tokens, output_tokens,
-      cache_creation_tokens, cache_read_tokens,
-      timestamp, is_sidechain, has_thinking
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertToolUse = db.prepare(`
-    INSERT INTO tool_uses (
-      session_id, message_uuid, tool_name, tool_use_id,
-      input_json, result_text, success, duration_ms, timestamp
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertFileTouched = db.prepare(`
-    INSERT INTO files_touched (session_id, file_path, action, timestamp)
-    VALUES (?, ?, ?, ?)
-  `);
-
+  // Phase 3: Process files
   for (let i = 0; i < toProcess.length; i++) {
     const file = toProcess[i]!;
 
@@ -129,50 +89,7 @@ export async function runIngestion(
         continue;
       }
 
-      // Use a transaction for atomicity
-      const runTransaction = db.transaction(() => {
-        // Delete existing data for this session (for re-import)
-        deleteSession(db, file.sessionId);
-
-        // Insert session
-        const s = sessionMeta as NormalizedSession;
-        insertSession.run(
-          s.id, s.source, s.project, s.cwd ?? file.project, s.gitBranch,
-          s.model, s.startedAt, s.endedAt, s.messageCount,
-          s.totalInputTokens, s.totalOutputTokens,
-          s.totalCacheCreationTokens, s.totalCacheReadTokens,
-          s.estimatedCostUsd, s.summary, s.version, s.entrypoint,
-          s.filePath, s.fileMtime, s.fileSize
-        );
-
-        // Insert messages in batches
-        for (const msg of messages) {
-          insertMessage.run(
-            msg.sessionId, msg.uuid, msg.parentUuid, msg.role,
-            msg.contentText, msg.contentJson, msg.model,
-            msg.inputTokens, msg.outputTokens,
-            msg.cacheCreationTokens, msg.cacheReadTokens,
-            msg.timestamp, msg.isSidechain ? 1 : 0, msg.hasThinking ? 1 : 0
-          );
-        }
-
-        // Insert tool uses
-        for (const tu of toolUses) {
-          insertToolUse.run(
-            tu.sessionId, tu.messageUuid, tu.toolName, tu.toolUseId,
-            tu.inputJson, tu.resultText, tu.success, tu.durationMs, tu.timestamp
-          );
-        }
-
-        // Insert files touched
-        for (const ft of filesTouched) {
-          insertFileTouched.run(ft.sessionId, ft.filePath, ft.action, ft.timestamp);
-        }
-
-        markFileSynced(db, file.path, file.source, file.mtime, file.size);
-      });
-
-      runTransaction();
+      insertParsedSession(db, sessionMeta, messages, toolUses, filesTouched, file.path, file.source, file.mtime, file.size);
 
       result.filesProcessed++;
       result.sessionsImported++;

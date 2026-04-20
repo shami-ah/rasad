@@ -79,11 +79,5 @@ export interface ParsedEntry {
   filesTouched: NormalizedFileTouched[];
 }
 
-/** Adapter interface — each data source implements this */
-export interface DataSourceAdapter {
-  name: Source;
-  discover(): AsyncGenerator<SourceFile>;
-  parse(file: SourceFile): AsyncGenerator<NormalizedMessage | NormalizedToolUse | NormalizedFileTouched>;
-  buildSession(file: SourceFile, messages: NormalizedMessage[], toolUses: NormalizedToolUse[]): NormalizedSession;
-  watchPaths(): string[];
-}
+// Adapters follow a convention: each source has discovery.ts + parser.ts
+// in src/ingest/<source-name>/. See claude-code/, gogaa/, codex/ for examples.

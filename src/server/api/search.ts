@@ -30,7 +30,13 @@ export function registerSearchRoutes(app: FastifyInstance, db: Database.Database
     sql += " ORDER BY rank LIMIT ? OFFSET ?";
     params.push(limit, offset);
 
-    const results = db.prepare(sql).all(...params);
+    let results;
+    try {
+      results = db.prepare(sql).all(...params);
+    } catch {
+      // FTS5 MATCH can crash on malformed queries (unbalanced quotes, operators)
+      return { results: [], total: 0, query: q, error: "Invalid search query — try simpler terms" };
+    }
 
     return { results, total: results.length, query: q };
   });

@@ -33,15 +33,15 @@ export function registerSessionRoutes(app: FastifyInstance, db: Database.Databas
   });
 
   // Get single session
-  app.get("/api/sessions/:id", async (request) => {
+  app.get("/api/sessions/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
+    if (id.length < 4) { reply.status(400); return { error: "Session ID must be at least 4 characters" }; }
 
-    // Support partial IDs
     const session = db.prepare(
       "SELECT * FROM sessions WHERE id = ? OR id LIKE ?"
     ).get(id, `${id}%`);
 
-    if (!session) return { error: "Session not found" };
+    if (!session) { reply.status(404); return { error: "Session not found" }; }
     return session;
   });
 

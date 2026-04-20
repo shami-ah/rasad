@@ -4,11 +4,12 @@ import { homedir } from "node:os";
 import { existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import type Database from "better-sqlite3";
-import { isFileSynced, markFileSynced, deleteSession } from "../db/connection.js";
+import { isFileSynced, markFileSynced } from "../db/connection.js";
+import { insertParsedSession } from "../db/insert.js";
 import { parseClaudeCodeFile } from "./claude-code/parser.js";
 import { decodeProjectDir } from "./claude-code/discovery.js";
 import { parseGogaaFile } from "./gogaa/parser.js";
-import type { NormalizedSession, SourceFile } from "./types.js";
+import type { SourceFile } from "./types.js";
 
 interface WatcherOptions {
   db: Database.Database;
@@ -56,59 +57,7 @@ export function startWatcher(options: WatcherOptions): { close: () => void } {
           continue;
         }
 
-        // Insert into DB
-        const insertTransaction = options.db.transaction(() => {
-          deleteSession(options.db, sourceFile.sessionId);
-
-          const s = sessionMeta as NormalizedSession;
-          options.db.prepare(`
-            INSERT OR REPLACE INTO sessions (id, source, project, cwd, git_branch, model,
-              started_at, ended_at, message_count, total_input_tokens, total_output_tokens,
-              total_cache_creation_tokens, total_cache_read_tokens, estimated_cost_usd,
-              summary, version, entrypoint, file_path, file_mtime, file_size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            s.id, s.source, s.project, s.cwd ?? "", s.gitBranch, s.model,
-            s.startedAt, s.endedAt, s.messageCount, s.totalInputTokens,
-            s.totalOutputTokens, s.totalCacheCreationTokens, s.totalCacheReadTokens,
-            s.estimatedCostUsd, s.summary, s.version, s.entrypoint,
-            s.filePath, s.fileMtime, s.fileSize
-          );
-
-          for (const msg of messages) {
-            options.db.prepare(`
-              INSERT OR IGNORE INTO messages (session_id, uuid, parent_uuid, role,
-                content_text, content_json, model, input_tokens, output_tokens,
-                cache_creation_tokens, cache_read_tokens, timestamp, is_sidechain, has_thinking)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              msg.sessionId, msg.uuid, msg.parentUuid, msg.role, msg.contentText,
-              msg.contentJson, msg.model, msg.inputTokens, msg.outputTokens,
-              msg.cacheCreationTokens, msg.cacheReadTokens, msg.timestamp,
-              msg.isSidechain ? 1 : 0, msg.hasThinking ? 1 : 0
-            );
-          }
-
-          for (const tu of toolUses) {
-            options.db.prepare(`
-              INSERT INTO tool_uses (session_id, message_uuid, tool_name, tool_use_id,
-                input_json, result_text, success, duration_ms, timestamp)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(tu.sessionId, tu.messageUuid, tu.toolName, tu.toolUseId,
-              tu.inputJson, tu.resultText, tu.success, tu.durationMs, tu.timestamp);
-          }
-
-          for (const ft of filesTouched) {
-            options.db.prepare(`
-              INSERT INTO files_touched (session_id, file_path, action, timestamp)
-              VALUES (?, ?, ?, ?)
-            `).run(ft.sessionId, ft.filePath, ft.action, ft.timestamp);
-          }
-
-          markFileSynced(options.db, filePath, sourceFile.source, Math.floor(stat.mtimeMs), stat.size);
-        });
-
-        insertTransaction();
+        insertParsedSession(options.db, sessionMeta, messages, toolUses, filesTouched, filePath, sourceFile.source, Math.floor(stat.mtimeMs), stat.size);
         options.onSync?.(filePath, 1);
       } catch (err) {
         options.onError?.(filePath, err as Error);

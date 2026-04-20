@@ -3,12 +3,16 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json") as { version: string };
+
 const program = new Command();
 
 program
   .name("rasad")
   .description("AI Observatory — monitor what your AI coding assistant is actually doing")
-  .version("0.1.0");
+  .version(pkg.version);
 
 // First-run detection: auto-sync if no DB exists
 program.hook("preAction", async (thisCommand) => {
@@ -36,7 +40,7 @@ program.action(async () => {
 
 program
   .command("sync")
-  .description("Ingest/re-sync session data from Claude Code and Gogaa")
+  .description("Ingest/re-sync session data from all detected AI tools")
   .option("--force", "Re-import all files, ignoring sync state")
   .action(async (opts: { force?: boolean }) => {
     const { runSync } = await import("./commands/sync.js");
@@ -129,7 +133,7 @@ program
 
 program
   .command("summarize <sessionId>")
-  .description("AI Summary — generate an intelligent session summary using Claude")
+  .description("AI Summary — generate an intelligent session summary (auto-detects your API provider)")
   .option("--api-key <key>", "Anthropic API key (or set ANTHROPIC_API_KEY env)")
   .option("--json", "Output as JSON")
   .option("--md", "Export as Markdown file")

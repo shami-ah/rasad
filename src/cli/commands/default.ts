@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getDb, closeDb } from "../../db/connection.js";
@@ -70,16 +70,62 @@ export async function runDefault(): Promise<void> {
       console.log(`  Last session: ${chalk.dim(lastSession.slice(0, 16).replace("T", " "))}`);
     }
 
-    console.log("");
-    console.log("  Commands:");
-    console.log(`    ${chalk.cyan("rasad dashboard")}   Open the web dashboard`);
-    console.log(`    ${chalk.cyan("rasad karma")}       See your spending breakdown`);
-    console.log(`    ${chalk.cyan("rasad timeline")}    Browse all sessions`);
-    console.log(`    ${chalk.cyan("rasad search")} ${chalk.dim("<q>")}   Search past conversations`);
-    console.log(`    ${chalk.cyan("rasad sync")}        Re-sync latest sessions`);
-    console.log("");
-    console.log(`  ${chalk.dim("Run")} ${chalk.cyan("rasad dashboard")} ${chalk.dim("to open the full web UI")}`);
-    console.log("");
+    // Weekly digest: show wrapped stats if user hasn't run rasad in 7+ days
+    const lastRunPath = join(homedir(), ".rasad", "last_run");
+    let showDigest = false;
+    if (existsSync(lastRunPath)) {
+      try {
+        const lastRun = new Date(readFileSync(lastRunPath, "utf-8").trim());
+        const daysSince = (Date.now() - lastRun.getTime()) / 86400000;
+        if (daysSince >= 7) showDigest = true;
+      } catch { /* skip */ }
+    }
+    // Update last run timestamp
+    try { writeFileSync(lastRunPath, new Date().toISOString()); } catch { /* skip */ }
+
+    if (showDigest) {
+      // Auto-sync first to get latest data
+      console.log(chalk.dim("  Syncing latest sessions..."));
+      const { runSync } = await import("./sync.js");
+      await runSync({});
+
+      console.log("");
+      console.log(chalk.bold.cyan("  📊 Weekly Digest — here's what happened while you were away:"));
+      console.log("");
+
+      const weekStats = db.prepare(`
+        SELECT COUNT(*) as sessions, SUM(message_count) as messages,
+               SUM(estimated_cost_usd) as cost
+        FROM sessions WHERE started_at >= DATE('now', '-7 days')
+      `).get() as Record<string, number>;
+
+      console.log(`  This week: ${chalk.cyan(String(weekStats.sessions ?? 0))} sessions, ${chalk.yellow("$" + (weekStats.cost ?? 0).toFixed(0))} spent`);
+
+      // Top recommendation
+      const { generateRecommendations } = await import("../../analysis/recommendations.js");
+      const recs = generateRecommendations(db);
+      if (recs.recommendations.length > 0) {
+        const top = recs.recommendations[0]!;
+        console.log(`  💡 ${chalk.white(top.title)}`);
+        console.log(`     ${chalk.cyan("→")} ${top.action}`);
+      }
+
+      console.log("");
+      console.log(`  ${chalk.dim("Run")} ${chalk.cyan("rasad wrapped")} ${chalk.dim("for the full stats card")}`);
+      console.log("");
+    } else {
+      console.log("");
+      console.log("  Commands:");
+      console.log(`    ${chalk.cyan("rasad dashboard")}    Open the web dashboard`);
+      console.log(`    ${chalk.cyan("rasad recommend")}    Cost saving tips`);
+      console.log(`    ${chalk.cyan("rasad quality")}      Session grades + leaderboard`);
+      console.log(`    ${chalk.cyan("rasad wrapped")}      Shareable weekly stats`);
+      console.log(`    ${chalk.cyan("rasad watch")}        Live context monitor`);
+      console.log(`    ${chalk.cyan("rasad search")} ${chalk.dim("<q>")}    Search past conversations`);
+      console.log("");
+      console.log(`  ${chalk.dim("Run")} ${chalk.cyan("rasad dashboard")} ${chalk.dim("to open the full web UI")}`);
+      console.log("");
+    }
   } finally {
     closeDb();
   }
