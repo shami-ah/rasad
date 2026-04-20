@@ -8,6 +8,9 @@ import { generateVibeDiff } from "../../analysis/vibe-diff.js";
 import { compareModels } from "../../analysis/model-compare.js";
 import { exportPassportMarkdown, exportVibeDiffMarkdown } from "../../analysis/export.js";
 import { generateAISummary } from "../../analysis/ai-summary.js";
+import { generateRecommendations } from "../../analysis/recommendations.js";
+import { scoreSession, getLeaderboard } from "../../analysis/quality-score.js";
+import { generateWrapped } from "../../analysis/wrapped.js";
 
 export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Database): void {
   // Token Karma
@@ -98,6 +101,31 @@ export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Datab
     } catch (err) {
       return { error: (err as Error).message };
     }
+  });
+
+  // Cost Recommendations
+  app.get("/api/analytics/recommend", async () => {
+    return generateRecommendations(db);
+  });
+
+  // Session Quality
+  app.get("/api/analytics/quality/:id", async (request) => {
+    const { id } = request.params as { id: string };
+    const resolved = db.prepare("SELECT id FROM sessions WHERE id LIKE ?").get(`${id}%`) as { id: string } | undefined;
+    if (!resolved) return { error: "Session not found" };
+    return scoreSession(db, resolved.id) ?? { error: "Could not score session" };
+  });
+
+  // Quality Leaderboard
+  app.get("/api/analytics/leaderboard", async () => {
+    return getLeaderboard(db);
+  });
+
+  // AI Wrapped
+  app.get("/api/analytics/wrapped", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const type = query.type === "monthly" ? "monthly" as const : "weekly" as const;
+    return generateWrapped(db, type);
   });
 
   // Overview stats (for dashboard home)

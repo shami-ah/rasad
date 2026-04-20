@@ -139,6 +139,32 @@ program
   });
 
 program
+  .command("recommend")
+  .description("Cost Recommendations — actionable tips to reduce AI spending")
+  .action(async () => {
+    const { runRecommend } = await import("./commands/recommend.js");
+    await runRecommend();
+  });
+
+program
+  .command("quality [sessionId]")
+  .description("Session Quality — score and grade your sessions (or view leaderboard)")
+  .action(async (sessionId?: string) => {
+    const { runQuality } = await import("./commands/quality.js");
+    await runQuality(sessionId);
+  });
+
+program
+  .command("wrapped")
+  .description("AI Wrapped — shareable stats card for this week/month")
+  .option("--monthly", "Show monthly instead of weekly")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { monthly?: boolean; json?: boolean }) => {
+    const { runWrapped } = await import("./commands/wrapped.js");
+    await runWrapped(opts);
+  });
+
+program
   .command("dashboard")
   .description("Launch the web dashboard")
   .option("-p, --port <port>", "Port number", "9847")
