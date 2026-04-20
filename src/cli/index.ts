@@ -165,6 +165,14 @@ program
   });
 
 program
+  .command("watch")
+  .description("Live Monitor — watch your active CC session in real-time")
+  .action(async () => {
+    const { runWatch } = await import("./commands/watch.js");
+    await runWatch();
+  });
+
+program
   .command("dashboard")
   .description("Launch the web dashboard")
   .option("-p, --port <port>", "Port number", "9847")
