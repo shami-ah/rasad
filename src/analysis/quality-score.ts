@@ -8,7 +8,7 @@ export interface SessionQuality {
   costPerFileChanged: number;
   costPerToolCall: number;
   retryRate: number;
-  errorRate: number;
+  actions: string[]; // concrete actions to improve
 }
 
 interface QualityFactor {
@@ -34,25 +34,45 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
 
   if (messageCount < 3) {
     return {
-      sessionId,
-      score: 50,
-      grade: "C",
+      sessionId, score: 50, grade: "C",
       factors: [{ name: "Too short", score: 50, weight: 1, detail: "Session too short to score meaningfully" }],
-      costPerFileChanged: 0,
-      costPerToolCall: 0,
-      retryRate: 0,
-      errorRate: 0,
+      costPerFileChanged: 0, costPerToolCall: 0, retryRate: 0, actions: [],
     };
   }
 
   const factors: QualityFactor[] = [];
+  const actions: string[] = [];
 
-  // 1. Files changed per dollar (productivity)
-  const filesChanged = (db.prepare(`
-    SELECT COUNT(DISTINCT file_path) as count
-    FROM files_touched WHERE session_id = ? AND action IN ('write', 'edit')
-  `).get(sessionId) as { count: number }).count;
+  // Batch all queries for this session into one trip
+  const stats = db.prepare(`
+    SELECT
+      (SELECT COUNT(DISTINCT file_path) FROM files_touched WHERE session_id = ? AND action IN ('write', 'edit')) as files_changed,
+      (SELECT COUNT(*) FROM files_touched WHERE session_id = ? AND action IN ('write', 'edit')) as total_edits,
+      (SELECT COUNT(*) FROM tool_uses WHERE session_id = ?) as total_tool_calls,
+      (SELECT COUNT(DISTINCT tool_name) FROM tool_uses WHERE session_id = ?) as unique_tools
+  `).get(sessionId, sessionId, sessionId, sessionId) as {
+    files_changed: number;
+    total_edits: number;
+    total_tool_calls: number;
+    unique_tools: number;
+  };
 
+  // Retry detection — files edited >2 times
+  const retryStats = db.prepare(`
+    SELECT COALESCE(SUM(edits - 1), 0) as retry_edits FROM (
+      SELECT COUNT(*) as edits FROM files_touched
+      WHERE session_id = ? AND action IN ('write', 'edit')
+      GROUP BY file_path HAVING COUNT(*) > 2
+    )
+  `).get(sessionId) as { retry_edits: number };
+
+  const filesChanged = stats.files_changed;
+  const totalEdits = stats.total_edits;
+  const totalToolCalls = stats.total_tool_calls;
+  const uniqueTools = stats.unique_tools;
+  const retryEdits = retryStats.retry_edits;
+
+  // 1. Productivity — cost per file changed
   const costPerFile = filesChanged > 0 ? cost / filesChanged : cost;
   let productivityScore: number;
   if (costPerFile < 1) productivityScore = 100;
@@ -70,23 +90,14 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
       : "No files were changed",
   });
 
-  // 2. Retry rate — same file edited multiple times suggests struggles
-  const fileEditCounts = db.prepare(`
-    SELECT file_path, COUNT(*) as edits
-    FROM files_touched
-    WHERE session_id = ? AND action IN ('write', 'edit')
-    GROUP BY file_path
-    HAVING COUNT(*) > 2
-  `).all(sessionId) as Array<{ file_path: string; edits: number }>;
+  if (productivityScore < 50 && filesChanged === 0) {
+    actions.push("This session spent money but changed no files. Consider using a cheaper model for research/questions.");
+  } else if (productivityScore < 50) {
+    actions.push(`$${costPerFile.toFixed(0)} per file is high. Try splitting into smaller, focused tasks.`);
+  }
 
-  const totalEdits = (db.prepare(`
-    SELECT COUNT(*) as count FROM files_touched
-    WHERE session_id = ? AND action IN ('write', 'edit')
-  `).get(sessionId) as { count: number }).count;
-
-  const retriedEdits = fileEditCounts.reduce((s, f) => s + f.edits - 1, 0); // extra edits beyond first
-  const retryRate = totalEdits > 0 ? retriedEdits / totalEdits : 0;
-
+  // 2. First-attempt success
+  const retryRate = totalEdits > 0 ? retryEdits / totalEdits : 0;
   let retryScore: number;
   if (retryRate < 0.1) retryScore = 100;
   else if (retryRate < 0.25) retryScore = 75;
@@ -102,16 +113,11 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
       : "No retries detected — clean execution",
   });
 
-  // 3. Tool diversity — good sessions use a variety of tools purposefully
-  const toolCounts = db.prepare(`
-    SELECT tool_name, COUNT(*) as count
-    FROM tool_uses WHERE session_id = ?
-    GROUP BY tool_name
-  `).all(sessionId) as Array<{ tool_name: string; count: number }>;
+  if (retryScore < 50) {
+    actions.push("High retry rate suggests the AI is struggling. Try: give clearer instructions, break the task down, or paste relevant code context.");
+  }
 
-  const totalToolCalls = toolCounts.reduce((s, t) => s + t.count, 0);
-  const uniqueTools = toolCounts.length;
-
+  // 3. Tool diversity
   let toolScore: number;
   if (uniqueTools >= 5 && totalToolCalls >= 5) toolScore = 90;
   else if (uniqueTools >= 3) toolScore = 70;
@@ -125,10 +131,8 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
     detail: `${uniqueTools} different tools, ${totalToolCalls} total calls`,
   });
 
-  // 4. Session focus — messages per tool call ratio
-  // Good: more tool calls per message = AI is doing work, not chatting
+  // 4. Action density
   const actionRatio = messageCount > 0 ? totalToolCalls / messageCount : 0;
-
   let focusScore: number;
   if (actionRatio > 0.5) focusScore = 90;
   else if (actionRatio > 0.3) focusScore = 70;
@@ -144,14 +148,17 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
       : `${(actionRatio * 100).toFixed(0)}% action rate — more conversation than action`,
   });
 
-  // 5. Cost efficiency — compared to average for this model
+  if (focusScore < 50) {
+    actions.push("Low action density — you're chatting more than coding. Try starting with a specific task like 'edit file X to fix Y'.");
+  }
+
+  // 5. Cost efficiency vs model average
   const modelAvg = db.prepare(`
     SELECT AVG(estimated_cost_usd) as avg_cost
     FROM sessions WHERE model = ? AND message_count >= 3
   `).get(session.model as string) as { avg_cost: number };
 
   const costRatio = modelAvg.avg_cost > 0 ? cost / modelAvg.avg_cost : 1;
-
   let costScore: number;
   if (costRatio < 0.5) costScore = 100;
   else if (costRatio < 1) costScore = 80;
@@ -166,41 +173,120 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
     detail: `$${cost.toFixed(2)} (${costRatio < 1 ? "below" : costRatio.toFixed(1) + "x"} average for ${(session.model as string)?.replace("claude-", "")})`,
   });
 
-  // Calculate weighted score
+  if (costScore < 40) {
+    actions.push(`This session cost ${costRatio.toFixed(1)}x more than average. Consider: shorter sessions, cheaper model for simple tasks, or /compact to reduce context.`);
+  }
+
+  // Weighted score
   const totalWeight = factors.reduce((s, f) => s + f.weight, 0);
   const weightedScore = Math.round(
     factors.reduce((s, f) => s + f.score * f.weight, 0) / totalWeight
   );
 
   const grade: SessionQuality["grade"] =
-    weightedScore >= 85 ? "A" :
-    weightedScore >= 70 ? "B" :
-    weightedScore >= 55 ? "C" :
-    weightedScore >= 40 ? "D" : "F";
+    weightedScore >= 85 ? "A" : weightedScore >= 70 ? "B" :
+    weightedScore >= 55 ? "C" : weightedScore >= 40 ? "D" : "F";
 
   return {
-    sessionId,
-    score: weightedScore,
-    grade,
-    factors,
+    sessionId, score: weightedScore, grade, factors,
     costPerFileChanged: costPerFile,
     costPerToolCall: totalToolCalls > 0 ? cost / totalToolCalls : cost,
     retryRate,
-    errorRate: 0,
+    actions,
   };
 }
 
+/** Batched leaderboard — uses 3 queries instead of 1000+ */
 export function getLeaderboard(db: Database.Database, limit: number = 5): QualityLeaderboard {
-  const sessions = db.prepare(`
-    SELECT id FROM sessions WHERE message_count >= 3 AND estimated_cost_usd > 0
-    ORDER BY started_at DESC LIMIT 200
-  `).all() as Array<{ id: string }>;
+  // Pre-compute all metrics in a single query
+  const rows = db.prepare(`
+    SELECT
+      s.id,
+      s.estimated_cost_usd as cost,
+      s.message_count,
+      s.model,
+      COALESCE(f.files_changed, 0) as files_changed,
+      COALESCE(t.total_tools, 0) as total_tools,
+      COALESCE(t.unique_tools, 0) as unique_tools,
+      COALESCE(e.total_edits, 0) as total_edits,
+      COALESCE(r.retry_edits, 0) as retry_edits
+    FROM sessions s
+    LEFT JOIN (
+      SELECT session_id, COUNT(DISTINCT file_path) as files_changed
+      FROM files_touched WHERE action IN ('write', 'edit')
+      GROUP BY session_id
+    ) f ON f.session_id = s.id
+    LEFT JOIN (
+      SELECT session_id, COUNT(*) as total_tools, COUNT(DISTINCT tool_name) as unique_tools
+      FROM tool_uses GROUP BY session_id
+    ) t ON t.session_id = s.id
+    LEFT JOIN (
+      SELECT session_id, COUNT(*) as total_edits
+      FROM files_touched WHERE action IN ('write', 'edit')
+      GROUP BY session_id
+    ) e ON e.session_id = s.id
+    LEFT JOIN (
+      SELECT session_id, SUM(cnt - 1) as retry_edits FROM (
+        SELECT session_id, COUNT(*) as cnt
+        FROM files_touched WHERE action IN ('write', 'edit')
+        GROUP BY session_id, file_path HAVING COUNT(*) > 2
+      ) GROUP BY session_id
+    ) r ON r.session_id = s.id
+    WHERE s.message_count >= 3 AND s.estimated_cost_usd > 0
+    ORDER BY s.started_at DESC
+    LIMIT 200
+  `).all() as Array<{
+    id: string;
+    cost: number;
+    message_count: number;
+    model: string;
+    files_changed: number;
+    total_tools: number;
+    unique_tools: number;
+    total_edits: number;
+    retry_edits: number;
+  }>;
 
-  const scored: SessionQuality[] = [];
-  for (const s of sessions) {
-    const quality = scoreSession(db, s.id);
-    if (quality) scored.push(quality);
-  }
+  // Model averages — single query
+  const modelAvgs = new Map<string, number>();
+  const avgRows = db.prepare(`
+    SELECT model, AVG(estimated_cost_usd) as avg_cost
+    FROM sessions WHERE message_count >= 3 GROUP BY model
+  `).all() as Array<{ model: string; avg_cost: number }>;
+  for (const r of avgRows) modelAvgs.set(r.model, r.avg_cost);
+
+  // Score each session in-memory (no more DB calls)
+  const scored: SessionQuality[] = rows.map((row) => {
+    const costPerFile = row.files_changed > 0 ? row.cost / row.files_changed : row.cost;
+    const retryRate = row.total_edits > 0 ? row.retry_edits / row.total_edits : 0;
+    const actionRatio = row.message_count > 0 ? row.total_tools / row.message_count : 0;
+    const modelAvg = modelAvgs.get(row.model) ?? row.cost;
+    const costRatio = modelAvg > 0 ? row.cost / modelAvg : 1;
+
+    const prodScore = costPerFile < 1 ? 100 : costPerFile < 5 ? 80 : costPerFile < 15 ? 60 : costPerFile < 50 ? 40 : 20;
+    const retryScore = retryRate < 0.1 ? 100 : retryRate < 0.25 ? 75 : retryRate < 0.5 ? 50 : 25;
+    const toolScore = row.unique_tools >= 5 ? 90 : row.unique_tools >= 3 ? 70 : row.unique_tools >= 1 ? 50 : 30;
+    const focusScore = actionRatio > 0.5 ? 90 : actionRatio > 0.3 ? 70 : actionRatio > 0.1 ? 50 : 30;
+    const costScore = costRatio < 0.5 ? 100 : costRatio < 1 ? 80 : costRatio < 2 ? 60 : costRatio < 3 ? 40 : 20;
+
+    const score = Math.round(prodScore * 0.3 + retryScore * 0.25 + toolScore * 0.15 + focusScore * 0.15 + costScore * 0.15);
+    const grade: SessionQuality["grade"] = score >= 85 ? "A" : score >= 70 ? "B" : score >= 55 ? "C" : score >= 40 ? "D" : "F";
+
+    return {
+      sessionId: row.id, score, grade,
+      factors: [
+        { name: "Productivity", score: prodScore, weight: 0.3, detail: `$${costPerFile.toFixed(2)}/file (${row.files_changed} files)` },
+        { name: "First-attempt", score: retryScore, weight: 0.25, detail: `${(retryRate * 100).toFixed(0)}% retry rate` },
+        { name: "Tool usage", score: toolScore, weight: 0.15, detail: `${row.unique_tools} tools, ${row.total_tools} calls` },
+        { name: "Action density", score: focusScore, weight: 0.15, detail: `${(actionRatio * 100).toFixed(0)}% action rate` },
+        { name: "Cost efficiency", score: costScore, weight: 0.15, detail: `${costRatio.toFixed(1)}x model avg` },
+      ],
+      costPerFileChanged: costPerFile,
+      costPerToolCall: row.total_tools > 0 ? row.cost / row.total_tools : row.cost,
+      retryRate,
+      actions: [],
+    };
+  });
 
   scored.sort((a, b) => b.score - a.score);
   const avgScore = scored.length > 0

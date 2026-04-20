@@ -32,6 +32,7 @@ export async function runRecommend(): Promise<void> {
 
       console.log(`  ${severityIcon} ${chalk.bold(rec.title)}${savingsText}`);
       console.log(`     ${chalk.dim(rec.description)}`);
+      console.log(`     ${chalk.cyan("→")} ${chalk.white(rec.action)}`);
       if (rec.affectedSessions) {
         console.log(`     ${chalk.dim(`Affects ${rec.affectedSessions} sessions`)}`);
       }

@@ -6,6 +6,7 @@ export interface Recommendation {
   severity: "high" | "medium" | "low";
   title: string;
   description: string;
+  action: string; // concrete step the user should take
   savings?: number;
   affectedSessions?: number;
 }
@@ -44,18 +45,22 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
   let opusDowngradeSavings = 0;
   let opusDowngradeCount = 0;
 
-  for (const session of opusSessions) {
-    // Check tool complexity — if mostly Read/Grep/Glob, Sonnet would suffice
-    const tools = db.prepare(`
-      SELECT tool_name, COUNT(*) as count
-      FROM tool_uses WHERE session_id = ?
-      GROUP BY tool_name
-    `).all(session.id) as Array<{ tool_name: string; count: number }>;
+  // Batch: get tool complexity for ALL opus sessions in one query
+  const toolComplexity = db.prepare(`
+    SELECT session_id,
+      COUNT(*) as total_tools,
+      SUM(CASE WHEN tool_name IN ('Read', 'Grep', 'Glob', 'ToolSearch', 'Bash') THEN 1 ELSE 0 END) as simple_tools
+    FROM tool_uses
+    WHERE session_id IN (SELECT id FROM sessions WHERE model LIKE '%opus%' AND estimated_cost_usd > 1)
+    GROUP BY session_id
+  `).all() as Array<{ session_id: string; total_tools: number; simple_tools: number }>;
 
-    const totalTools = tools.reduce((s, t) => s + t.count, 0);
-    const simpleTools = tools
-      .filter((t) => ["Read", "Grep", "Glob", "ToolSearch", "Bash"].includes(t.tool_name))
-      .reduce((s, t) => s + t.count, 0);
+  const complexityMap = new Map(toolComplexity.map((t) => [t.session_id, t]));
+
+  for (const session of opusSessions) {
+    const tc = complexityMap.get(session.id);
+    const totalTools = tc?.total_tools ?? 0;
+    const simpleTools = tc?.simple_tools ?? 0;
 
     const complexRatio = totalTools > 0 ? simpleTools / totalTools : 0;
 
@@ -83,6 +88,7 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
       severity: opusDowngradeSavings > 100 ? "high" : "medium",
       title: `Switch ${opusDowngradeCount} sessions from Opus to Sonnet`,
       description: `${opusDowngradeCount} Opus sessions primarily used simple tools (Read, Grep, Bash). Sonnet handles these equally well at 80% lower cost.`,
+      action: "Run `/model sonnet` at the start of sessions focused on reading, searching, or small edits. Save Opus for complex refactors and architecture work.",
       savings: opusDowngradeSavings,
       affectedSessions: opusDowngradeCount,
     });
@@ -103,7 +109,8 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
       type: "session_habit",
       severity: savings > 50 ? "high" : "medium",
       title: `${shortOpus.count} quick-question sessions used Opus`,
-      description: `Sessions with fewer than 5 messages don't need Opus. Using Haiku for quick lookups would save ~$${savings.toFixed(0)}. Consider: /model haiku for simple questions, switch to Opus when you need deep reasoning.`,
+      description: `Sessions with fewer than 5 messages don't need Opus. Using Haiku for quick lookups would save ~$${savings.toFixed(0)}.`,
+      action: "Before your next quick question, run `/model haiku`. Switch back to Opus with `/model opus` only when you need deep reasoning or complex refactors.",
       savings,
       affectedSessions: shortOpus.count,
     });
@@ -132,7 +139,8 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
       type: "session_habit",
       severity: "medium",
       title: `${longSessions.length} marathon sessions (100+ messages)`,
-      description: `Long sessions re-send growing context with every message, inflating cost. Splitting into focused sessions (one task each) typically saves 20-30%. Most expensive: $${longSessions[0]?.estimated_cost_usd.toFixed(0)} with ${longSessions[0]?.message_count} messages.`,
+      description: `Long sessions re-send growing context with every message, inflating cost. Most expensive: $${longSessions[0]?.estimated_cost_usd.toFixed(0)} with ${longSessions[0]?.message_count} messages.`,
+      action: "Break tasks into single-purpose sessions: 'fix auth bug' then exit, 'add tests' then exit. Each fresh session starts with clean context. Use /compact mid-session if you must stay.",
       savings: splitSavings,
       affectedSessions: longSessions.length,
     });
@@ -154,7 +162,8 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
       type: "efficiency_tip",
       severity: "low",
       title: `${lowCacheSessions.count} sessions with low cache efficiency`,
-      description: `These sessions had less than 50% cache hit rate, meaning the AI re-processed context that could have been cached. Keeping system prompts and project context stable across sessions improves caching.`,
+      description: `These sessions had less than 50% cache hit rate, meaning the AI re-processed context that could have been cached.`,
+      action: "Keep your CLAUDE.md and project context files stable between sessions. Avoid changing system prompts frequently. Use /resume to continue from cached state instead of starting fresh.",
       affectedSessions: lowCacheSessions.count,
     });
   }
@@ -177,7 +186,8 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
         type: "cost_alert",
         severity: "high",
         title: `${spikes.length} cost spike${spikes.length > 1 ? "s" : ""} in the last 30 days`,
-        description: `Your average daily spend is $${avgDaily.toFixed(0)}. On ${worstSpike.date} you spent $${worstSpike.cost.toFixed(0)} (${(worstSpike.cost / avgDaily).toFixed(1)}x average). Consider setting a daily budget with GOGAA_SESSION_BUDGET.`,
+        description: `Your average daily spend is $${avgDaily.toFixed(0)}. On ${worstSpike.date} you spent $${worstSpike.cost.toFixed(0)} (${(worstSpike.cost / avgDaily).toFixed(1)}x average).`,
+        action: "Set a daily budget: `export GOGAA_SESSION_BUDGET=50`. Run `rasad watch` in a side terminal to see cost live. When you see costs spiking, split the task or switch to a cheaper model.",
       });
     }
   }
@@ -206,7 +216,8 @@ export function generateRecommendations(db: Database.Database): RecommendationRe
         type: "session_habit",
         severity: "low",
         title: "Weekend sessions cost 2x more than weekdays",
-        description: `Avg weekday session: $${weekdayPerSession.toFixed(2)}. Avg weekend session: $${weekendPerSession.toFixed(2)}. Weekend sessions tend to be longer and less focused. Consider planning tasks before weekend coding.`,
+        description: `Avg weekday session: $${weekdayPerSession.toFixed(2)}. Avg weekend session: $${weekendPerSession.toFixed(2)}. Weekend sessions tend to be longer and less focused.`,
+        action: "Before weekend coding: write down what you want to accomplish. Start each session with a clear task, not open-ended exploration. Use Sonnet/Haiku for weekend browsing.",
       });
     }
   }
