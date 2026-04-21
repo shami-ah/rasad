@@ -9,6 +9,7 @@ import { registerSessionRoutes } from "./api/sessions.js";
 import { registerAnalyticsRoutes } from "./api/analytics.js";
 import { registerSearchRoutes } from "./api/search.js";
 import { registerTrajectoryRoutes } from "./api/trajectory.js";
+import { registerXRayRoutes } from "./api/xray.js";
 import type { WebSocket } from "ws";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,6 +72,7 @@ export async function startServer(port: number = 9847): Promise<string> {
   registerAnalyticsRoutes(app, db);
   registerSearchRoutes(app, db);
   registerTrajectoryRoutes(app, db);
+  registerXRayRoutes(app, db);
 
   // Serve dashboard static files if built
   const possiblePaths = [

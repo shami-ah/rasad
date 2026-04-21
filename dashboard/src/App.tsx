@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
-import { Telescope, BarChart3, GitBranch, Brain, FileText, AlertTriangle, Diff, Layers, Search } from "lucide-react";
+import { Telescope, BarChart3, GitBranch, Brain, FileText, AlertTriangle, Diff, Layers, Search, Zap } from "lucide-react";
 import { Overview } from "./pages/Overview";
 import { Timeline } from "./pages/Timeline";
 import { TokenKarma } from "./pages/TokenKarma";
@@ -13,11 +13,13 @@ import { SearchPage } from "./pages/Search";
 import { Recommend } from "./pages/Recommend";
 import { Quality } from "./pages/Quality";
 import { Wrapped } from "./pages/Wrapped";
+import { XRayPage } from "./pages/XRay";
 import { useLiveUpdates } from "./hooks/useLive";
 
 const NAV = [
   { to: "/", icon: Telescope, label: "Overview", hint: "Your AI activity summary" },
   { to: "/timeline", icon: Layers, label: "All Sessions", hint: "Browse every session" },
+  { to: "/xray", icon: Zap, label: "X-Ray", hint: "See every AI action" },
   { to: "/karma", icon: BarChart3, label: "Spending", hint: "Where your money goes" },
   { to: "/compare", icon: Layers, label: "Models", hint: "Compare AI models" },
   { to: "/recommend", icon: AlertTriangle, label: "Savings", hint: "Tips to reduce cost" },
@@ -107,6 +109,8 @@ export function App(): React.ReactElement {
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/timeline" element={<Timeline />} />
+            <Route path="/xray" element={<XRayPage />} />
+            <Route path="/xray/:id" element={<XRayPage />} />
             <Route path="/karma" element={<TokenKarma />} />
             <Route path="/trajectory" element={<TrajectoryPage />} />
             <Route path="/trajectory/:id" element={<TrajectoryPage />} />

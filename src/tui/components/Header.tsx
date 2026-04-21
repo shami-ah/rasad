@@ -5,9 +5,11 @@ interface Props {
   project: string;
   sessionId: string;
   isActive: boolean;
+  isPinned?: boolean;
+  onUnpin?: () => void;
 }
 
-export function Header({ project, sessionId, isActive }: Props): React.ReactElement {
+export function Header({ project, sessionId, isActive, isPinned }: Props): React.ReactElement {
   return (
     <Box paddingLeft={1} gap={1}>
       <Text bold color="cyan"> RASAD</Text>
@@ -18,7 +20,11 @@ export function Header({ project, sessionId, isActive }: Props): React.ReactElem
           <Text dimColor>|</Text>
           <Text dimColor>{sessionId}</Text>
           <Text dimColor>|</Text>
-          <Text color="green" bold> LIVE</Text>
+          {isPinned ? (
+            <Text color="yellow" bold> PINNED</Text>
+          ) : (
+            <Text color="green" bold> LIVE</Text>
+          )}
         </>
       ) : (
         <Text color="yellow"> Waiting for active session...</Text>

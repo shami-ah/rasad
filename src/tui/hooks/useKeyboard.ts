@@ -1,16 +1,16 @@
 import { useInput } from "ink";
 import { useState, useCallback } from "react";
 
-export type View = "overview" | "tools" | "files" | "recommendations";
+export type View = "overview" | "xray" | "tools" | "files" | "recommendations";
 
-const VIEW_ORDER: View[] = ["overview", "tools", "files", "recommendations"];
+const VIEW_ORDER: View[] = ["overview", "xray", "tools", "files", "recommendations"];
 
 interface KeyboardState {
   currentView: View;
   setView: (view: View) => void;
 }
 
-export function useKeyboard(onQuit: () => void): KeyboardState {
+export function useKeyboard(onQuit: () => void, onSessionSwitch?: () => void): KeyboardState {
   const [currentView, setCurrentView] = useState<View>("overview");
 
   const setView = useCallback((view: View) => setCurrentView(view), []);
@@ -21,22 +21,29 @@ export function useKeyboard(onQuit: () => void): KeyboardState {
       return;
     }
 
+    if (input === "s" || input === "S") {
+      onSessionSwitch?.();
+      return;
+    }
+
     switch (input) {
       case "1":
         setCurrentView("overview");
         break;
       case "2":
-        setCurrentView("tools");
+        setCurrentView("xray");
         break;
       case "3":
-        setCurrentView("files");
+        setCurrentView("tools");
         break;
       case "4":
+        setCurrentView("files");
+        break;
+      case "5":
         setCurrentView("recommendations");
         break;
       case "h":
       case "H":
-        // Previous view
         {
           const idx = VIEW_ORDER.indexOf(currentView);
           setCurrentView(VIEW_ORDER[(idx - 1 + VIEW_ORDER.length) % VIEW_ORDER.length]!);
@@ -44,7 +51,6 @@ export function useKeyboard(onQuit: () => void): KeyboardState {
         break;
       case "l":
       case "L":
-        // Next view
         {
           const idx = VIEW_ORDER.indexOf(currentView);
           setCurrentView(VIEW_ORDER[(idx + 1) % VIEW_ORDER.length]!);

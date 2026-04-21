@@ -67,6 +67,7 @@ export function Timeline(): React.ReactElement {
               <span className="text-xs text-yellow-500 font-mono">${s.estimated_cost_usd.toFixed(2)}</span>
               <div className="flex-1" />
               <div className="opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                <button onClick={(e) => { e.stopPropagation(); navigate(`/xray/${s.id.slice(0, 8)}`); }} className="text-[10px] px-2 py-0.5 rounded bg-cyan-900/50 text-cyan-400 hover:text-white">X-Ray</button>
                 <button onClick={(e) => { e.stopPropagation(); navigate(`/trajectory/${s.id.slice(0, 8)}`); }} className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:text-white">Trajectory</button>
                 <button onClick={(e) => { e.stopPropagation(); navigate(`/context/${s.id.slice(0, 8)}`); }} className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:text-white">Context</button>
                 <button onClick={(e) => { e.stopPropagation(); navigate(`/vibe-diff/${s.id.slice(0, 8)}`); }} className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:text-white">Vibe Diff</button>

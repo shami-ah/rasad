@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { getContextWindow } from "../../analysis/pricing.js";
 
+/** Outcome of a tool action — drives the X-Ray status indicator. */
+export type ActionOutcome = "ok" | "error" | "info";
+
 /** A single observable event in the session timeline. */
 export interface LiveEvent {
   time: string;       // HH:MM:SS
@@ -12,6 +15,28 @@ export interface LiveEvent {
   label: string;      // human-readable short label
   detail: string;     // file path, command preview, or message preview
   toolName?: string;  // raw tool name if type=tool
+  /** X-Ray fields */
+  outcome: ActionOutcome;         // ok | error | info
+  filePath?: string;              // full file path if applicable
+  exitCode?: number;              // for Bash commands
+  errorPreview?: string;          // first line of error output
+  /** For Edit: the actual old→new strings (truncated to ~20 lines each) */
+  oldContent?: string;
+  newContent?: string;
+  /** True line counts of original content before truncation */
+  oldLineCount?: number;
+  newLineCount?: number;
+  /** For Write: the actual file content (truncated to ~20 lines) */
+  writeContent?: string;
+  writeLineCount?: number;
+  /** For Bash: the command and its output */
+  bashCommand?: string;
+  bashOutput?: string;
+  /** For Grep/Glob: the search pattern and match count */
+  searchPattern?: string;
+  matchCount?: number;
+  /** For Read: first few lines of what was read */
+  readPreview?: string;
 }
 
 export interface LiveStats {
@@ -98,30 +123,72 @@ const TOOL_HUMAN: Record<string, { icon: string; label: string }> = {
   Skill:      { icon: " ", label: "Running skill" },
 };
 
-function extractToolDetail(_name: string, input: Record<string, unknown> | undefined): string {
-  if (!input) return "";
-  if (typeof input.file_path === "string") {
-    return (input.file_path as string).split("/").slice(-2).join("/");
+/** Shorten MCP tool names: mcp__plugin_supabase_supabase__execute_sql → supabase:execute_sql */
+function shortToolName(name: string): string {
+  if (name.startsWith("mcp__")) {
+    // mcp__plugin_supabase_supabase__execute_sql → supabase:execute_sql
+    const parts = name.replace(/^mcp__plugin_[^_]+_/, "").replace(/__/g, ":");
+    return parts.length > 20 ? parts.slice(0, 20) : parts;
   }
-  if (typeof input.command === "string") {
-    return (input.command as string).slice(0, 60);
+  return name;
+}
+
+/** Truncate multi-line string to N lines for display */
+function truncLines(s: string, maxLines: number): string {
+  const lines = s.split("\n");
+  if (lines.length <= maxLines) return s;
+  return lines.slice(0, maxLines).join("\n") + `\n… (${lines.length - maxLines} more lines)`;
+}
+
+interface XRayMeta {
+  detail: string;
+  filePath?: string;
+  oldContent?: string;
+  newContent?: string;
+  oldLineCount?: number;
+  newLineCount?: number;
+  writeContent?: string;
+  writeLineCount?: number;
+  bashCommand?: string;
+  searchPattern?: string;
+}
+
+function extractXRayMeta(name: string, input: Record<string, unknown> | undefined): XRayMeta {
+  if (!input) return { detail: "" };
+  const filePath = typeof input.file_path === "string" ? input.file_path as string : undefined;
+  const shortPath = filePath ? filePath.split("/").slice(-2).join("/") : undefined;
+
+  if (name === "Edit" && filePath) {
+    const oldStr = typeof input.old_string === "string" ? input.old_string as string : "";
+    const newStr = typeof input.new_string === "string" ? input.new_string as string : "";
+    return {
+      detail: shortPath ?? "",
+      filePath,
+      oldContent: truncLines(oldStr, 15),
+      newContent: truncLines(newStr, 15),
+      oldLineCount: oldStr.split("\n").length,
+      newLineCount: newStr.split("\n").length,
+    };
   }
-  if (typeof input.pattern === "string") {
-    return `"${(input.pattern as string).slice(0, 40)}"`;
+  if (name === "Write" && filePath) {
+    const content = typeof input.content === "string" ? input.content as string : "";
+    const lineCount = content.split("\n").length;
+    return { detail: shortPath ?? "", filePath, writeContent: truncLines(content, 15), writeLineCount: lineCount };
   }
-  if (typeof input.query === "string") {
-    return `"${(input.query as string).slice(0, 40)}"`;
+  if (name === "Read" && filePath) {
+    return { detail: shortPath ?? "", filePath };
   }
-  if (typeof input.prompt === "string") {
-    return (input.prompt as string).slice(0, 50);
+  if (name === "Bash" && typeof input.command === "string") {
+    return { detail: (input.command as string).slice(0, 80), bashCommand: input.command as string };
   }
-  if (typeof input.description === "string") {
-    return (input.description as string).slice(0, 50);
+  if ((name === "Grep" || name === "Glob") && typeof input.pattern === "string") {
+    return { detail: `"${(input.pattern as string).slice(0, 50)}"`, searchPattern: input.pattern as string };
   }
-  if (typeof input.subject === "string") {
-    return (input.subject as string).slice(0, 50);
-  }
-  return "";
+  if (filePath) return { detail: shortPath ?? "", filePath };
+  if (typeof input.prompt === "string") return { detail: (input.prompt as string).slice(0, 50) };
+  if (typeof input.description === "string") return { detail: (input.description as string).slice(0, 50) };
+  if (typeof input.subject === "string") return { detail: (input.subject as string).slice(0, 50) };
+  return { detail: "" };
 }
 
 function detectPhase(toolBreakdown: Map<string, number>, lastTools: string[]): string {
@@ -147,11 +214,20 @@ function detectPhase(toolBreakdown: Map<string, number>, lastTools: string[]): s
   return "exploring";
 }
 
-function findActiveSession(): { path: string; project: string; sessionId: string } | null {
-  const ccBase = join(homedir(), ".claude", "projects");
-  if (!existsSync(ccBase)) return null;
+export interface SessionInfo {
+  path: string;
+  project: string;
+  sessionId: string;
+  mtime: number;
+}
 
-  let newest: { path: string; mtime: number; project: string; sessionId: string } | null = null;
+/** Find all recent sessions (modified in last 24h), sorted newest first. */
+export function findAllSessions(): SessionInfo[] {
+  const ccBase = join(homedir(), ".claude", "projects");
+  if (!existsSync(ccBase)) return [];
+
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000; // last 24h
+  const sessions: SessionInfo[] = [];
   try {
     const dirs = readdirSync(ccBase, { withFileTypes: true }).filter((d) => d.isDirectory());
     for (const dir of dirs) {
@@ -161,19 +237,24 @@ function findActiveSession(): { path: string; project: string; sessionId: string
         for (const file of files) {
           const fullPath = join(ccBase, dir.name, file.name);
           const stat = statSync(fullPath);
-          if (!newest || stat.mtimeMs > newest.mtime) {
-            newest = {
+          if (stat.mtimeMs > cutoff) {
+            sessions.push({
               path: fullPath,
               mtime: stat.mtimeMs,
               project: dir.name.slice(1),
               sessionId: file.name.replace(".jsonl", ""),
-            };
+            });
           }
         }
       } catch { /* skip */ }
     }
   } catch { /* skip */ }
-  return newest;
+  return sessions.sort((a, b) => b.mtime - a.mtime);
+}
+
+function findActiveSession(): SessionInfo | null {
+  const sessions = findAllSessions();
+  return sessions[0] ?? null;
 }
 
 function parseSessionLive(filePath: string, project: string, sessionId: string): LiveStats {
@@ -226,6 +307,7 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
             icon: ">",
             label: "You asked",
             detail: text.slice(0, 70),
+            outcome: "info",
           });
         }
       }
@@ -250,23 +332,15 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
             const b = block as Record<string, unknown>;
             if (b.type === "tool_use") {
               toolCalls++;
-              const name = (b.name as string) ?? "unknown";
+              const rawName = (b.name as string) ?? "unknown";
+              const name = shortToolName(rawName);
               toolBreakdown.set(name, (toolBreakdown.get(name) ?? 0) + 1);
               lastToolCall = name;
               recentToolNames.push(name);
               const input = b.input as Record<string, unknown> | undefined;
-              const detail = extractToolDetail(name, input);
+              const xray = extractXRayMeta(name, input);
 
-              const humanTool = TOOL_HUMAN[name];
-              events.push({
-                time,
-                type: "tool",
-                icon: humanTool?.icon ?? "?",
-                label: humanTool?.label ?? name,
-                detail,
-                toolName: name,
-              });
-
+              // Track file operations
               if (input && typeof input.file_path === "string") {
                 const fp = (input.file_path as string).split("/").slice(-2).join("/");
                 if (name === "Read") filesRead.add(fp);
@@ -274,6 +348,69 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
                 else if (name === "Edit") {
                   filesEdited.add(fp);
                   editCounts.set(fp, (editCounts.get(fp) ?? 0) + 1);
+                }
+              }
+
+              const outcome: ActionOutcome = ["Read", "Grep", "Glob"].includes(name) ? "info" : "ok";
+              const humanTool = TOOL_HUMAN[name];
+
+              events.push({
+                time,
+                type: "tool",
+                icon: humanTool?.icon ?? "?",
+                label: humanTool?.label ?? name,
+                detail: xray.detail,
+                toolName: name,
+                outcome,
+                filePath: xray.filePath,
+                oldContent: xray.oldContent,
+                newContent: xray.newContent,
+                oldLineCount: xray.oldLineCount,
+                newLineCount: xray.newLineCount,
+                writeContent: xray.writeContent,
+                writeLineCount: xray.writeLineCount,
+                bashCommand: xray.bashCommand,
+                searchPattern: xray.searchPattern,
+              });
+            }
+            // Parse tool_result to enrich the last event with output
+            if (b.type === "tool_result") {
+              const resultContent = b.content;
+              let resultText = "";
+              if (typeof resultContent === "string") {
+                resultText = resultContent;
+              } else if (Array.isArray(resultContent)) {
+                for (const rc of resultContent) {
+                  if (typeof rc === "object" && rc !== null && (rc as Record<string, unknown>).type === "text") {
+                    resultText = (rc as Record<string, unknown>).text as string;
+                    break;
+                  }
+                }
+              }
+              const lastEv = events.length > 0 ? events[events.length - 1] : undefined;
+              if (lastEv && lastEv.type === "tool") {
+                // Bash: capture output and exit code
+                if (lastEv.toolName === "Bash") {
+                  lastEv.bashOutput = truncLines(resultText, 15);
+                  const exitMatch = resultText.match(/exit code:?\s*(\d+)/i);
+                  if (exitMatch) {
+                    lastEv.exitCode = parseInt(exitMatch[1]!, 10);
+                    if (lastEv.exitCode !== 0) lastEv.outcome = "error";
+                  }
+                }
+                // Read: capture preview
+                if (lastEv.toolName === "Read") {
+                  lastEv.readPreview = truncLines(resultText, 10);
+                }
+                // Grep/Glob: count matches
+                if (lastEv.toolName === "Grep" || lastEv.toolName === "Glob") {
+                  const matchLines = resultText.trim().split("\n").filter((l) => l.length > 0);
+                  lastEv.matchCount = matchLines.length;
+                }
+                // Any tool error
+                if (b.is_error === true) {
+                  lastEv.outcome = "error";
+                  lastEv.errorPreview = resultText.slice(0, 120);
                 }
               }
             }
@@ -354,7 +491,7 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
     retryCount,
     sessionDuration,
     isActive: true,
-    events: events.slice(-30),
+    events: events.slice(-100),
     projectedCost,
     costPerMinute,
     sonnetEquivalentCost,
@@ -362,13 +499,20 @@ function parseSessionLive(filePath: string, project: string, sessionId: string):
   };
 }
 
-export function useSessionWatcher(intervalMs = 2000): LiveStats {
+export function useSessionWatcher(intervalMs = 2000, pinnedSessionId?: string): LiveStats {
   const [stats, setStats] = useState<LiveStats>(EMPTY_STATS);
   const lastSizeRef = useRef(0);
 
   useEffect(() => {
     const tick = (): void => {
-      const active = findActiveSession();
+      let active: SessionInfo | null = null;
+      if (pinnedSessionId) {
+        // Find the specific session
+        const all = findAllSessions();
+        active = all.find((s) => s.sessionId.startsWith(pinnedSessionId)) ?? null;
+      } else {
+        active = findActiveSession();
+      }
       if (!active) {
         if (stats.isActive) setStats(EMPTY_STATS);
         lastSizeRef.current = 0;
@@ -386,7 +530,7 @@ export function useSessionWatcher(intervalMs = 2000): LiveStats {
     tick();
     const id = setInterval(tick, intervalMs);
     return () => clearInterval(id);
-  }, [intervalMs]);
+  }, [intervalMs, pinnedSessionId]);
 
   return stats;
 }

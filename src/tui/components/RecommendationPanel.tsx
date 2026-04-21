@@ -12,20 +12,20 @@ interface Tip {
 function generateTips(s: LiveStats): Tip[] {
   const tips: Tip[] = [];
 
-  // ── Context warnings ──
+  // ── Context warnings — actionable steps, not just "start fresh" ──
   if (s.contextPercent > 95) {
     tips.push({
       severity: "critical",
-      title: "AI memory is almost full",
-      explanation: `Your AI can only hold ~${(s.contextMaxTokens / 1000).toFixed(0)}K tokens of context. At ${s.contextPercent.toFixed(0)}%, it's forgetting your early instructions and making worse decisions.`,
-      action: "Type /compact now to free memory, or start a new session for best results.",
+      title: "Memory is full — take action NOW",
+      explanation: `At ${s.contextPercent.toFixed(0)}%, your AI is actively forgetting your earlier instructions. Quality is degrading.`,
+      action: "1) Type /compact to compress old context. 2) If that's not enough, summarize what you need in a clear message and paste it into a new session. Your memory files will carry over automatically.",
     });
   } else if (s.contextPercent > 80) {
     tips.push({
       severity: "warning",
-      title: "Memory is filling up",
-      explanation: `At ${s.contextPercent.toFixed(0)}% capacity, your AI is starting to lose track of earlier context. Answers may become less accurate.`,
-      action: "Run /compact to summarize old context and free up space.",
+      title: "Memory filling up — run /compact",
+      explanation: `At ${s.contextPercent.toFixed(0)}% capacity. Running /compact will summarize old conversation and free ~30-50% of context. You don't need to start a new session yet.`,
+      action: "Type /compact now. If you're past 90% after compacting, then start fresh — your memory files persist across sessions.",
     });
   }
 
@@ -65,14 +65,17 @@ function generateTips(s: LiveStats): Tip[] {
     }
   }
 
-  // ── Retry detection ──
-  if (s.retryCount > 0) {
-    tips.push({
-      severity: "warning",
-      title: `${s.retryCount} file(s) edited 3+ times — AI is struggling`,
-      explanation: "When the AI edits the same file repeatedly, it's usually because the instructions are unclear or there's an error it can't figure out.",
-      action: "Paste the exact error message. Give a specific example of what you want. Break the task into smaller steps.",
-    });
+  // ── Retry detection — only flag if errors accompany repeated edits ──
+  if (s.retryCount > 2) {
+    const errorEvents = s.events.filter((e) => e.outcome === "error");
+    if (errorEvents.length > 0) {
+      tips.push({
+        severity: "warning",
+        title: `${errorEvents.length} error(s) detected — check if the AI is stuck`,
+        explanation: "Errors during edits may mean the AI is retrying a failing approach. Multiple edits to the same file without errors is normal workflow.",
+        action: "Paste the exact error message. Give a specific example of what you want. Break the task into smaller steps.",
+      });
+    }
   }
 
   // ── Long session ──
