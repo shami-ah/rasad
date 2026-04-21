@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Telescope, BarChart3, GitBranch, Brain, FileText, AlertTriangle, Diff, Layers, Search, Zap } from "lucide-react";
 import { Overview } from "./pages/Overview";
 import { Timeline } from "./pages/Timeline";
@@ -106,6 +107,7 @@ export function App(): React.ReactElement {
       <div className="flex">
         <Sidebar />
         <main className="ml-56 flex-1 min-h-screen">
+          <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/timeline" element={<Timeline />} />
@@ -127,6 +129,7 @@ export function App(): React.ReactElement {
             <Route path="/wrapped" element={<Wrapped />} />
             <Route path="/search" element={<SearchPage />} />
           </Routes>
+          </ErrorBoundary>
         </main>
       </div>
     </BrowserRouter>

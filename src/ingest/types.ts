@@ -1,6 +1,6 @@
 /** Normalized types shared across all data source adapters */
 
-export type Source = "claude-code" | "gogaa" | "codex";
+export type Source = "claude-code" | "gogaa" | "codex" | "aider" | "cursor";
 
 export type MessageRole = "user" | "assistant" | "system";
 

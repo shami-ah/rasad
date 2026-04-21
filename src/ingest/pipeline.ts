@@ -5,6 +5,10 @@ import { discoverGogaaFiles } from "./gogaa/discovery.js";
 import { parseGogaaFile } from "./gogaa/parser.js";
 import { discoverCodexFiles } from "./codex/discovery.js";
 import { parseCodexFile } from "./codex/parser.js";
+import { discoverAiderFiles } from "./aider/discovery.js";
+import { parseAiderFile } from "./aider/parser.js";
+import { discoverCursorFiles } from "./cursor/discovery.js";
+import { parseCursorFile } from "./cursor/parser.js";
 import { isFileSynced, markFileSynced } from "../db/connection.js";
 import { insertParsedSession } from "../db/insert.js";
 
@@ -55,6 +59,12 @@ export async function runIngestion(
   for await (const file of discoverCodexFiles()) {
     files.push(file);
   }
+  for await (const file of discoverAiderFiles()) {
+    files.push(file);
+  }
+  for await (const file of discoverCursorFiles()) {
+    files.push(file);
+  }
 
   result.filesDiscovered = files.length;
 
@@ -82,7 +92,11 @@ export async function runIngestion(
           ? await parseGogaaFile(file)
           : file.source === "codex"
             ? await parseCodexFile(file)
-            : await parseClaudeCodeFile(file);
+            : file.source === "aider"
+              ? await parseAiderFile(file)
+              : file.source === "cursor"
+                ? await parseCursorFile(file)
+                : await parseClaudeCodeFile(file);
 
       if (messages.length === 0) {
         markFileSynced(db, file.path, file.source, file.mtime, file.size);
