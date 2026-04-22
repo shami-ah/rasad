@@ -50,32 +50,28 @@ export function App({ onExit }: Props): React.ReactElement {
         isPinned={pinnedSession !== undefined}
         onUnpin={() => setPinnedSession(undefined)}
       />
-      <Box flexDirection="column" marginTop={1} minHeight={15}>
-        {currentView === "overview" && (
+      <Box key={currentView} flexDirection="column" marginTop={1} minHeight={15}>
+        {currentView === "overview" ? (
           <OverviewView stats={stats} width={width} />
-        )}
-        {currentView === "xray" && (
+        ) : currentView === "xray" ? (
           <XRayView stats={stats} width={width} />
-        )}
-        {currentView === "tools" && (
+        ) : currentView === "tools" ? (
           <ActivityFeed
             toolBreakdown={stats.toolBreakdown}
             lastToolCall={stats.lastToolCall}
             events={stats.events}
             maxItems={20}
           />
-        )}
-        {currentView === "files" && (
+        ) : currentView === "files" ? (
           <FileTracker
             filesRead={stats.filesRead}
             filesWritten={stats.filesWritten}
             filesEdited={stats.filesEdited}
             maxItems={30}
           />
-        )}
-        {currentView === "recommendations" && (
+        ) : currentView === "recommendations" ? (
           <RecommendationPanel stats={stats} />
-        )}
+        ) : null}
       </Box>
       <StatusLine currentView={currentView} width={width} onSessionSwitch={() => setShowSessionPicker(true)} />
     </Box>
