@@ -67,6 +67,10 @@ export interface LiveStats {
   costPerMinute: number;
   sonnetEquivalentCost: number;
   phase: string;
+  /** Recent context% snapshots (last 8 ticks) for sparkline. */
+  contextHistory: number[];
+  /** Recent cost snapshots (last 8 ticks) for sparkline. */
+  costHistory: number[];
 }
 
 const EMPTY_STATS: LiveStats = {
@@ -79,6 +83,7 @@ const EMPTY_STATS: LiveStats = {
   estimatedCost: 0, lastActivity: "", lastUserMessage: "", lastToolCall: "",
   retryCount: 0, sessionDuration: 0, isActive: false, events: [],
   projectedCost: 0, costPerMinute: 0, sonnetEquivalentCost: 0, phase: "idle",
+  contextHistory: [], costHistory: [],
 };
 
 // ─── Tool result enrichment (shared between user + assistant message parsing) ───
@@ -153,9 +158,9 @@ export function parseSessionLive(filePath: string, project: string, sessionId: s
       if (role === "user") {
         userMessages++;
         const uc = message.content;
+        let userText = "";
         if (typeof uc === "string" && uc.length > 0) {
-          lastUserMessage = uc.slice(0, 80);
-          events.push({ time, type: "user", icon: ">", label: "You asked", detail: uc.slice(0, 70), outcome: "info" });
+          userText = uc.slice(0, 80);
         }
         if (Array.isArray(uc)) {
           for (const block of uc) {
@@ -170,12 +175,14 @@ export function parseSessionLive(filePath: string, project: string, sessionId: s
               }
             }
             if (b.type === "text" && typeof b.text === "string" && (b.text as string).length > 0) {
-              lastUserMessage = (b.text as string).slice(0, 80);
+              userText = (b.text as string).slice(0, 80);
             }
           }
-          if (lastUserMessage) {
-            events.push({ time, type: "user", icon: ">", label: "You asked", detail: lastUserMessage.slice(0, 70), outcome: "info" });
-          }
+        }
+        // Only emit one "You asked" event per user message, and only if there's actual text
+        if (userText) {
+          lastUserMessage = userText;
+          events.push({ time, type: "user", icon: ">", label: "You asked", detail: userText.slice(0, 70), outcome: "info" });
         }
       }
 
@@ -257,7 +264,7 @@ export function parseSessionLive(filePath: string, project: string, sessionId: s
 
   return {
     sessionId: sessionId.slice(0, 8),
-    project: project.split("-").pop() ?? project,
+    project,
     model, messageCount, userMessages, assistantMessages,
     inputTokens, outputTokens, cacheReadTokens,
     contextUsedTokens: lastContextUsed, contextMaxTokens: contextMax, contextPercent,
@@ -270,6 +277,8 @@ export function parseSessionLive(filePath: string, project: string, sessionId: s
     costPerMinute: cost.costPerMinute,
     sonnetEquivalentCost: cost.sonnetEquivalentCost,
     phase: detectPhase(toolBreakdown, recentToolNames),
+    contextHistory: [],
+    costHistory: [],
   };
 }
 
@@ -278,6 +287,9 @@ export function parseSessionLive(filePath: string, project: string, sessionId: s
 export function useSessionWatcher(intervalMs = 2000, pinnedSessionId?: string): LiveStats {
   const [stats, setStats] = useState<LiveStats>(EMPTY_STATS);
   const lastSizeRef = useRef(0);
+  const contextHistoryRef = useRef<number[]>([]);
+  const costHistoryRef = useRef<number[]>([]);
+  const lastSessionIdRef = useRef("");
 
   useEffect(() => {
     const tick = (): void => {
@@ -296,7 +308,25 @@ export function useSessionWatcher(intervalMs = 2000, pinnedSessionId?: string): 
         const stat = statSync(active.path);
         if (stat.size === lastSizeRef.current) return;
         lastSizeRef.current = stat.size;
-        setStats(parseSessionLive(active.path, active.project, active.sessionId));
+        const parsed = parseSessionLive(active.path, active.project, active.sessionId);
+
+        // Reset history on session change
+        if (parsed.sessionId !== lastSessionIdRef.current) {
+          contextHistoryRef.current = [];
+          costHistoryRef.current = [];
+          lastSessionIdRef.current = parsed.sessionId;
+        }
+
+        // Append snapshots (keep last 8 for sparkline)
+        contextHistoryRef.current.push(Math.round(parsed.contextPercent));
+        if (contextHistoryRef.current.length > 8) contextHistoryRef.current.shift();
+        costHistoryRef.current.push(Math.round(parsed.estimatedCost * 100));
+        if (costHistoryRef.current.length > 8) costHistoryRef.current.shift();
+
+        parsed.contextHistory = [...contextHistoryRef.current];
+        parsed.costHistory = [...costHistoryRef.current];
+
+        setStats(parsed);
       } catch { /* file might be mid-write */ }
     };
 

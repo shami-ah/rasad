@@ -7,195 +7,173 @@ interface Props {
   width: number;
 }
 
-const PHASE_DISPLAY: Record<string, { icon: string; label: string; color: string }> = {
-  exploring: { icon: " ", label: "Exploring codebase", color: "cyan" },
-  coding:    { icon: " ", label: "Writing code", color: "green" },
-  testing:   { icon: "$", label: "Running & testing", color: "yellow" },
-  thinking:  { icon: ".", label: "Thinking...", color: "gray" },
-  idle:      { icon: "-", label: "Idle", color: "gray" },
+const PHASE_DISPLAY: Record<string, { label: string; color: "cyan" | "green" | "yellow" | "gray" }> = {
+  exploring: { label: "Reading the codebase", color: "cyan" },
+  coding: { label: "Making changes", color: "green" },
+  testing: { label: "Running commands", color: "yellow" },
+  thinking: { label: "Reasoning through the task", color: "gray" },
+  idle: { label: "Waiting for your next move", color: "gray" },
 };
 
+function clip(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(1, max - 1)).trimEnd()}…`;
+}
+
 function formatDuration(ms: number): string {
-  if (ms > 3_600_000) return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
-  return `${Math.floor(ms / 60_000)}m`;
+  if (ms >= 3_600_000) return `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`;
+  return `${Math.max(1, Math.floor(ms / 60_000))}m`;
 }
 
 function shortModel(model: string): string {
   return model.replace("claude-", "").replace(/-\d{8}$/, "");
 }
 
-function contextMessage(pct: number): string {
-  if (pct > 95) return "Run /compact NOW to free memory. If still high, start a fresh session.";
-  if (pct > 85) return "Running low — type /compact to compress old context and free space.";
-  if (pct > 70) return "Filling up — consider /compact soon to keep quality high.";
-  if (pct > 50) return "Half used — still plenty of room.";
-  return "Healthy — AI remembers everything clearly.";
+function buildBar(percent: number, width: number): string {
+  const safeWidth = Math.max(10, width);
+  const filled = Math.max(0, Math.min(safeWidth, Math.round((percent / 100) * safeWidth)));
+  return `${"=".repeat(filled)}${"-".repeat(Math.max(0, safeWidth - filled))}`;
 }
 
-function costMessage(cost: number, projected: number, sonnetCost: number, model: string): string {
-  if (model.includes("opus") && sonnetCost < cost * 0.4) {
-    return `Sonnet would cost ~$${sonnetCost.toFixed(0)} for same work (${Math.round((1 - sonnetCost / cost) * 100)}% cheaper)`;
+function sparkline(values: ReadonlyArray<number>): string {
+  if (values.length === 0) return "";
+  const bars = ["\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588"];
+  const max = Math.max(...values, 1);
+  return values.map((v) => bars[Math.min(7, Math.round((v / max) * 7))]).join("");
+}
+
+function contextMessage(pct: number): string {
+  if (pct >= 95) return "Context is nearly full. Compact now before quality drops.";
+  if (pct >= 80) return "Context is getting crowded. Compact soon.";
+  if (pct >= 60) return "Session is still healthy, but keep an eye on memory.";
+  return "Memory looks healthy.";
+}
+
+function costMessage(stats: LiveStats): string {
+  if (stats.model.includes("opus") && stats.sonnetEquivalentCost < stats.estimatedCost * 0.5) {
+    return `Sonnet could likely handle this for about $${stats.sonnetEquivalentCost.toFixed(0)}.`;
   }
-  if (projected > cost * 1.3 && projected > 10) {
-    return `On track to spend ~$${projected.toFixed(0)} total if you keep going.`;
+  if (stats.projectedCost > stats.estimatedCost * 1.4 && stats.projectedCost > 10) {
+    return `If this pace continues, expect about $${stats.projectedCost.toFixed(0)} total.`;
   }
-  if (cost > 50) return "Expensive session. Consider splitting into smaller tasks.";
-  if (cost > 20) return "Cost is adding up. Stay focused to get value.";
-  return "Spending looks reasonable.";
+  if (stats.estimatedCost > 50) return "Spend is high. Split the work into smaller sessions.";
+  if (stats.estimatedCost > 20) return "Spend is rising. Make sure the current path is worth it.";
+  return "Spend is in a healthy range.";
+}
+
+function nextAction(stats: LiveStats): string {
+  if (stats.contextPercent >= 90) return "Run /compact now.";
+  if (stats.model.includes("opus") && stats.sonnetEquivalentCost < stats.estimatedCost * 0.5) {
+    return "Switch to Sonnet for cheaper exploration.";
+  }
+  const editCount = (stats.toolBreakdown.get("Edit") ?? 0) + (stats.toolBreakdown.get("Write") ?? 0);
+  const bashCount = stats.toolBreakdown.get("Bash") ?? 0;
+  if (editCount >= 4 && bashCount < 2) return "Ask the agent to verify its changes with tests.";
+  if (stats.projectedCost > stats.estimatedCost * 1.5 && stats.projectedCost > 20) return "Narrow the scope before cost keeps climbing.";
+  return "Stay focused on one clear outcome.";
+}
+
+function humanizeEvent(event: LiveEvent, maxWidth: number): string {
+  const prefix = `${event.time.slice(0, 5)} ${event.label}`;
+  const detail = event.detail ? ` ${event.detail}` : "";
+  return clip(`${prefix}${detail}`, maxWidth);
 }
 
 export function OverviewView({ stats, width }: Props): React.ReactElement {
   const phase = PHASE_DISPLAY[stats.phase] ?? PHASE_DISPLAY.idle!;
-  const barW = Math.max(20, width - 30);
-  const ctxFilled = Math.round((stats.contextPercent / 100) * barW);
-  const ctxColor = stats.contextPercent > 90 ? "red" : stats.contextPercent > 75 ? "yellow" : stats.contextPercent > 50 ? "cyan" : "green";
-  const costColor = stats.estimatedCost > 50 ? "red" : stats.estimatedCost > 20 ? "yellow" : "green";
-
-  // Layout
-  const leftW = Math.floor((width - 4) * 0.6);
-
-  // Recent events for the live feed
-  const recentEvents = stats.events.slice(-12);
-
-  // Top 5 tools
-  const topTools = Array.from(stats.toolBreakdown.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  const barWidth = Math.max(12, width - 26);
+  const leftWidth = Math.max(30, Math.floor((width - 6) * 0.62));
+  const rightWidth = Math.max(24, width - leftWidth - 6);
+  const recentEvents = stats.events.slice(-8);
+  const topTools = Array.from(stats.toolBreakdown.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const maxToolCount = topTools[0]?.[1] ?? 1;
+  const contextColor = stats.contextPercent > 90 ? "red" : stats.contextPercent > 75 ? "yellow" : stats.contextPercent > 50 ? "cyan" : "green";
+  const costColor = stats.estimatedCost > 50 ? "red" : stats.estimatedCost > 20 ? "yellow" : "green";
 
   return (
     <Box flexDirection="column" paddingLeft={1} paddingRight={1}>
-      {/* ═══ PHASE + MODEL BAR ══�� */}
       <Box gap={2}>
-        <Text color={phase.color as "green"}>{phase.icon} {phase.label}</Text>
+        <Text color={phase.color}>{phase.label}</Text>
         <Text dimColor>|</Text>
         <Text color="magenta">{shortModel(stats.model)}</Text>
         <Text dimColor>|</Text>
         <Text dimColor>{formatDuration(stats.sessionDuration)}</Text>
         <Text dimColor>|</Text>
-        <Text>{stats.userMessages} prompts</Text>
+        <Text>{`${stats.userMessages} prompts`}</Text>
         <Text dimColor>|</Text>
-        <Text>{stats.toolCalls} actions</Text>
+        <Text>{`${stats.toolCalls} actions`}</Text>
       </Box>
 
-      <Box><Text dimColor>{"─".repeat(Math.max(1, width - 4))}</Text></Box>
+      <Text dimColor>{"-".repeat(Math.max(1, width - 4))}</Text>
 
-      {/* ═══ MEMORY GAUGE ═══ */}
       <Box flexDirection="column">
-        <Box>
-          <Text dimColor> Memory  </Text>
-          <Text color={ctxColor}>{"█".repeat(Math.min(ctxFilled, barW))}</Text>
-          <Text dimColor>{"░".repeat(Math.max(0, barW - ctxFilled))}</Text>
-          <Text color={ctxColor} bold> {stats.contextPercent.toFixed(0)}%</Text>
-        </Box>
-        <Box paddingLeft={9}>
-          <Text dimColor>{contextMessage(stats.contextPercent)}</Text>
-        </Box>
+        <Text bold color="cyan">Session Health</Text>
+        <Text>
+          <Text dimColor>Memory  </Text>
+          <Text color={contextColor as "green"}>{buildBar(stats.contextPercent, barWidth)}</Text>
+          <Text color={contextColor as "green"}>{` ${stats.contextPercent.toFixed(0)}%`}</Text>
+          {stats.contextHistory.length > 1 ? (
+            <Text dimColor>{`  ${sparkline(stats.contextHistory)}`}</Text>
+          ) : null}
+        </Text>
+        <Text dimColor>{`         ${contextMessage(stats.contextPercent)}`}</Text>
+        <Text>
+          <Text dimColor>Spend   </Text>
+          <Text color={costColor as "green"}>${stats.estimatedCost.toFixed(2)}</Text>
+          <Text dimColor>{`  ·  $${stats.costPerMinute.toFixed(2)}/min`}</Text>
+          {stats.projectedCost > stats.estimatedCost ? <Text dimColor>{`  ·  projected $${stats.projectedCost.toFixed(0)}`}</Text> : null}
+          {stats.costHistory.length > 1 ? (
+            <Text color="yellow">{`  ${sparkline(stats.costHistory)}`}</Text>
+          ) : null}
+        </Text>
+        <Text dimColor>{`         ${costMessage(stats)}`}</Text>
       </Box>
 
-      {/* ═══ COST ═══ */}
-      <Box flexDirection="column" marginTop={1}>
-        <Box gap={2}>
-          <Text dimColor> Cost    </Text>
-          <Text color={costColor} bold>${stats.estimatedCost.toFixed(2)}</Text>
-          <Text dimColor>|</Text>
-          <Text dimColor>${stats.costPerMinute.toFixed(2)}/min</Text>
-          {stats.projectedCost > stats.estimatedCost && (
-            <>
-              <Text dimColor>|</Text>
-              <Text dimColor>projected ~${stats.projectedCost.toFixed(0)}</Text>
-            </>
+      <Text dimColor>{"-".repeat(Math.max(1, width - 4))}</Text>
+
+      <Box flexDirection="row">
+        <Box flexDirection="column" width={leftWidth}>
+          <Text bold color="cyan">What The AI Is Doing</Text>
+          {recentEvents.length === 0 ? (
+            <Text dimColor>Waiting for visible activity.</Text>
+          ) : (
+            recentEvents.map((event, index) => (
+              <Text key={index} color={index === recentEvents.length - 1 ? "white" : undefined} bold={index === recentEvents.length - 1}>
+                {humanizeEvent(event, leftWidth - 2)}
+              </Text>
+            ))
           )}
         </Box>
-        <Box paddingLeft={9}>
-          <Text dimColor>{costMessage(stats.estimatedCost, stats.projectedCost, stats.sonnetEquivalentCost, stats.model)}</Text>
+
+        <Box flexDirection="column" width={rightWidth} paddingLeft={2}>
+          <Text bold color="blue">Under The Hood</Text>
+          {topTools.length === 0 ? (
+            <Text dimColor>No tool activity yet.</Text>
+          ) : (
+            topTools.map(([tool, count]) => (
+              <Text key={tool}>
+                <Text dimColor>{`${clip(tool, 10).padEnd(10)}`}</Text>
+                <Text color="blue">{buildBar((count / maxToolCount) * 100, Math.max(6, rightWidth - 18))}</Text>
+                <Text dimColor>{` ${count}`}</Text>
+              </Text>
+            ))
+          )}
+          <Text dimColor>{`${stats.filesWritten.size} new  ·  ${stats.filesEdited.size} edited  ·  ${stats.filesRead.size} read`}</Text>
         </Box>
       </Box>
 
-      <Box marginTop={1}><Text dimColor>{"─".repeat(Math.max(1, width - 4))}</Text></Box>
+      <Text dimColor>{"-".repeat(Math.max(1, width - 4))}</Text>
 
-      {/* ═══ LIVE FEED + TOOLS SIDE BY SIDE ═══ */}
-      <Box flexDirection="row" marginTop={0}>
-        {/* Left: Live feed */}
-        <Box flexDirection="column" width={leftW}>
-          <Box>
-            <Text bold color="cyan"> LIVE</Text>
-            <Text dimColor>  what your AI is doing right now</Text>
-          </Box>
-          <Box flexDirection="column" marginTop={1}>
-            {recentEvents.length === 0 ? (
-              <Box paddingLeft={2}><Text dimColor>Waiting for activity...</Text></Box>
-            ) : (
-              recentEvents.map((ev, i) => (
-                <EventRow key={i} event={ev} isLatest={i === recentEvents.length - 1} maxWidth={leftW - 2} />
-              ))
-            )}
-          </Box>
-        </Box>
-
-        {/* Right: Tools + Files summary */}
-        <Box flexDirection="column" width={width - 4 - leftW} paddingLeft={2}>
-          <Box><Text bold color="blue"> TOOLS</Text></Box>
-          <Box flexDirection="column" marginTop={1}>
-            {topTools.map(([tool, count]) => {
-              const barLen = Math.max(1, Math.round((count / maxToolCount) * 12));
-              const humanLabel = (TOOL_HUMAN_LABELS[tool] ?? tool).slice(0, 12).padEnd(12);
-              return (
-                <Box key={tool}>
-                  <Text dimColor>{humanLabel}</Text>
-                  <Text color="blue">{"█".repeat(barLen)}</Text>
-                  <Text dimColor> {count}</Text>
-                </Box>
-              );
-            })}
-          </Box>
-
-          <Box marginTop={1}><Text bold color="green"> FILES</Text></Box>
-          <Box marginTop={1} gap={2}>
-            <Text color="green">{stats.filesWritten.size} new</Text>
-            <Text color="yellow">{stats.filesEdited.size} edited</Text>
-            <Text dimColor>{stats.filesRead.size} read</Text>
-          </Box>
-        </Box>
+      <Box>
+        <Text bold color="yellow">Next move </Text>
+        <Text>{clip(nextAction(stats), width - 16)}</Text>
       </Box>
-
-      <Box marginTop={1}><Text dimColor>{"─".repeat(Math.max(1, width - 4))}</Text></Box>
-
-      {/* ═══ LAST PROMPT ═══ */}
-      {stats.lastUserMessage && (
-        <Box paddingLeft={1}>
-          <Text dimColor> Last prompt: </Text>
-          <Text>{stats.lastUserMessage.slice(0, width - 20)}</Text>
+      {stats.lastUserMessage ? (
+        <Box>
+          <Text dimColor>Latest ask </Text>
+          <Text>{clip(stats.lastUserMessage, width - 16)}</Text>
         </Box>
-      )}
+      ) : null}
     </Box>
   );
 }
-
-function EventRow({ event, isLatest, maxWidth }: { event: LiveEvent; isLatest: boolean; maxWidth: number }): React.ReactElement {
-  const color = event.type === "user" ? "green" : event.type === "tool" ? "cyan" : undefined;
-  const timeStr = event.time.slice(0, 5);
-  const labelStr = event.label;
-  // Available space: maxWidth - time(5) - spaces(3) - icon(1) - padding(2)
-  const availDetail = Math.max(0, maxWidth - timeStr.length - labelStr.length - 6);
-  const detailStr = event.detail ? event.detail.slice(0, availDetail) : "";
-  return (
-    <Box paddingLeft={2}>
-      <Text dimColor>{timeStr} </Text>
-      <Text color={isLatest ? "white" : color} bold={isLatest}>{event.icon} {labelStr}</Text>
-      {detailStr && <Text dimColor> {detailStr}</Text>}
-    </Box>
-  );
-}
-
-const TOOL_HUMAN_LABELS: Record<string, string> = {
-  Bash: "Commands",
-  Read: "Reading",
-  Edit: "Editing",
-  Write: "Creating",
-  Grep: "Searching",
-  Glob: "Finding",
-  Agent: "Agents",
-  TaskCreate: "Tasks",
-  TaskUpdate: "Tasks",
-};

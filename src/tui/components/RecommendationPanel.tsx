@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { Box, Text } from "ink";
 import type { LiveStats } from "../hooks/useSessionWatcher.js";
 
@@ -102,6 +102,72 @@ function generateTips(s: LiveStats): Tip[] {
     }
   }
 
+  // ── Retry loop: same file edited 4+ times ──
+  const editFileCounts = new Map<string, number>();
+  for (const event of s.events) {
+    if ((event.toolName === "Edit" || event.toolName === "Write") && event.filePath) {
+      editFileCounts.set(event.filePath, (editFileCounts.get(event.filePath) ?? 0) + 1);
+    }
+  }
+  for (const [file, count] of editFileCounts) {
+    if (count >= 4) {
+      const shortFile = file.split("/").slice(-2).join("/");
+      tips.push({
+        severity: "warning",
+        title: `Retry loop: ${shortFile} edited ${count} times`,
+        explanation: "The AI keeps changing the same file. It's probably stuck on an approach that isn't working.",
+        action: "Paste the exact error. Describe what the correct behavior should be. Consider reverting and trying a different approach.",
+      });
+      break;
+    }
+  }
+
+  // ── Read loop: same file read 5+ times ──
+  const readFileCounts = new Map<string, number>();
+  for (const event of s.events) {
+    if (event.toolName === "Read" && event.filePath) {
+      readFileCounts.set(event.filePath, (readFileCounts.get(event.filePath) ?? 0) + 1);
+    }
+  }
+  for (const [file, count] of readFileCounts) {
+    if (count >= 5) {
+      const shortFile = file.split("/").slice(-2).join("/");
+      tips.push({
+        severity: "info",
+        title: `${shortFile} read ${count} times`,
+        explanation: "Repeated reads of the same file suggest the AI lost context of its contents. This happens when context is filling up.",
+        action: "If memory is above 70%, run /compact. Otherwise, paste the relevant section directly in your next prompt.",
+      });
+      break;
+    }
+  }
+
+  // ── Error spike: 3+ errors in last 10 actions ──
+  const lastTen = s.events.slice(-10);
+  const recentErrors = lastTen.filter((e) => e.outcome === "error").length;
+  if (recentErrors >= 3) {
+    tips.push({
+      severity: "warning",
+      title: `${recentErrors} errors in last 10 actions`,
+      explanation: "Multiple recent errors usually means the AI is in a debugging loop. It's spending tokens without making real progress.",
+      action: "Interrupt and restate: 'Stop. Here's the exact error: [paste]. Here's what I need: [clear goal].'",
+    });
+  }
+
+  // ── Cost velocity spike ──
+  if (s.costPerMinute > 0 && s.sessionDuration > 120_000) {
+    // Compare current rate to session average
+    const avgRate = s.estimatedCost / (s.sessionDuration / 60_000);
+    if (s.costPerMinute > avgRate * 2.5 && s.costPerMinute > 0.5) {
+      tips.push({
+        severity: "warning",
+        title: `Cost accelerating: $${s.costPerMinute.toFixed(2)}/min`,
+        explanation: `Current rate is ${(s.costPerMinute / avgRate).toFixed(1)}x the session average. The AI may be doing intensive work or spinning.`,
+        action: "Check if the output is useful. If the AI is generating lots of code, make sure it's the right code.",
+      });
+    }
+  }
+
   // ── Bash-heavy pattern ──
   const bashCount = s.toolBreakdown.get("Bash") ?? 0;
   const editCount = (s.toolBreakdown.get("Edit") ?? 0) + (s.toolBreakdown.get("Write") ?? 0);
@@ -149,7 +215,18 @@ interface Props {
 }
 
 export function RecommendationPanel({ stats }: Props): React.ReactElement {
-  const tips = generateTips(stats);
+  // Memoize: only recompute when key stats change meaningfully
+  const lastKeyRef = useRef("");
+  const cachedTipsRef = useRef<Tip[]>([]);
+  const key = `${Math.round(stats.contextPercent / 5)}-${Math.round(stats.estimatedCost)}-${stats.toolCalls}-${stats.events.length}-${stats.retryCount}`;
+  let tips: Tip[];
+  if (key !== lastKeyRef.current) {
+    tips = generateTips(stats);
+    cachedTipsRef.current = tips;
+    lastKeyRef.current = key;
+  } else {
+    tips = cachedTipsRef.current;
+  }
 
   return (
     <Box flexDirection="column" paddingLeft={1}>

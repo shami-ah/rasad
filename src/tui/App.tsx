@@ -10,6 +10,8 @@ import { ActivityFeed } from "./components/ActivityFeed.js";
 import { FileTracker } from "./components/FileTracker.js";
 import { RecommendationPanel } from "./components/RecommendationPanel.js";
 import { XRayView } from "./components/XRayView.js";
+import { useAlerts } from "./hooks/useAlerts.js";
+import { AlertBanner } from "./components/AlertBanner.js";
 
 interface Props {
   onExit: () => void;
@@ -23,6 +25,7 @@ export function App({ onExit }: Props): React.ReactElement {
   const { currentView } = useKeyboard(onExit, () => setShowSessionPicker(true));
   const { stdout } = useStdout();
   const width = stdout?.columns ?? 80;
+  const { latestAlert, dismissLatest } = useAlerts(stats);
 
   const handlePickSession = useCallback((sessionId: string) => {
     setPinnedSession(sessionId);
@@ -39,6 +42,7 @@ export function App({ onExit }: Props): React.ReactElement {
 
   return (
     <Box flexDirection="column" width={width}>
+      <AlertBanner alert={latestAlert} onDismiss={dismissLatest} />
       <Header
         project={stats.project}
         sessionId={stats.sessionId}
@@ -94,26 +98,43 @@ function SessionPicker({ onPick, onCancel, width }: {
     }
   });
 
+  const shortModel = (m: string): string =>
+    m ? m.replace("claude-", "").replace(/-\d{8}$/, "").slice(0, 10) : "";
+
   return (
     <Box flexDirection="column" width={width} paddingLeft={2} paddingTop={1}>
       <Text bold color="cyan"> SWITCH SESSION</Text>
-      <Text dimColor>Pick a session to watch (press number, or [esc] to go back)</Text>
+      <Text dimColor>Recent sessions (last 24h) — press number to select, [esc] to cancel</Text>
       <Box marginTop={1} flexDirection="column">
         {sessions.length === 0 ? (
-          <Text dimColor>No recent sessions found (last 24h)</Text>
+          <Text dimColor>No recent sessions found</Text>
         ) : (
           sessions.slice(0, 9).map((s, i) => {
-            const age = Date.now() - s.mtime;
+            const age = Date.now() - s.startedAt;
             const ageStr = age < 60_000 ? "just now"
               : age < 3_600_000 ? `${Math.floor(age / 60_000)}m ago`
               : `${Math.floor(age / 3_600_000)}h ago`;
-            const project = s.project.split("-").pop() ?? s.project;
+            // Check if session is active (modified in last 30s)
+            const isActive = (Date.now() - s.mtime) < 30_000;
+            const msgPreview = s.firstMessage
+              ? s.firstMessage.slice(0, Math.max(10, width - 60))
+              : "";
+
             return (
-              <Box key={s.sessionId} gap={2}>
-                <Text color="cyan" bold>[{i + 1}]</Text>
-                <Text color="white" bold>{project.padEnd(20)}</Text>
-                <Text dimColor>{s.sessionId.slice(0, 8)}</Text>
-                <Text dimColor>{ageStr.padStart(10)}</Text>
+              <Box key={s.sessionId} flexDirection="column">
+                <Box gap={1}>
+                  <Text color="cyan" bold>[{i + 1}]</Text>
+                  {isActive ? <Text color="green" bold>*</Text> : <Text dimColor> </Text>}
+                  <Text color="white" bold>{s.project.padEnd(16).slice(0, 16)}</Text>
+                  <Text color="magenta">{shortModel(s.model).padEnd(10)}</Text>
+                  <Text dimColor>{ageStr.padStart(10)}</Text>
+                  {isActive && <Text color="green" bold> LIVE</Text>}
+                </Box>
+                {msgPreview && (
+                  <Box paddingLeft={5}>
+                    <Text dimColor>  "{msgPreview}"</Text>
+                  </Box>
+                )}
               </Box>
             );
           })
