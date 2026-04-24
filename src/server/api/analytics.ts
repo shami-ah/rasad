@@ -1,5 +1,33 @@
 import type { FastifyInstance } from "fastify";
 import type Database from "better-sqlite3";
+
+/** Extract clean project name from cwd or project field. */
+function cleanProjectName(cwd: unknown, project: unknown): string {
+  const cwdStr = typeof cwd === "string" ? cwd : "";
+  const projStr = typeof project === "string" ? project : "";
+  if (cwdStr) {
+    const parts = cwdStr.split("/").filter(Boolean);
+    return parts[parts.length - 1] ?? projStr;
+  }
+  if (projStr.includes("/")) return projStr.split("/").pop() ?? projStr;
+  return projStr;
+}
+
+function serializeSessionRow(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...row,
+    project: cleanProjectName(row.cwd, row.project),
+    duration_ms: row.ended_at
+      ? new Date(row.ended_at as string).getTime() - new Date(row.started_at as string).getTime()
+      : Date.now() - new Date(row.started_at as string).getTime(),
+    status: row.ended_at ? "completed" : "active",
+    first_user_message: typeof row.first_user_message === "string" ? row.first_user_message.slice(0, 160) : null,
+    is_favorite: Boolean(row.is_favorite),
+    needs_follow_up: Boolean(row.needs_follow_up),
+    is_pinned: Boolean(row.is_pinned),
+    note_count: Number(row.note_count ?? 0),
+  };
+}
 import { getKarmaSummary } from "../../analysis/token-karma.js";
 import { analyzeGhostContext } from "../../analysis/ghost-context.js";
 import { generatePassport } from "../../analysis/session-passport.js";
@@ -165,12 +193,53 @@ export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Datab
       FROM tool_uses GROUP BY tool_name ORDER BY count DESC LIMIT 10
     `).all();
 
+    const opsSummary = db.prepare(`
+      SELECT
+        SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END) as favorite_count,
+        SUM(CASE WHEN needs_follow_up = 1 THEN 1 ELSE 0 END) as follow_up_count,
+        SUM(CASE WHEN is_pinned = 1 THEN 1 ELSE 0 END) as pinned_count,
+        (SELECT COUNT(*) FROM session_notes) as note_count
+      FROM session_ops
+    `).get() as Record<string, unknown>;
+
+    // Recent sessions for the homepage (last 5)
+    const recentSessions = db.prepare(`
+      SELECT s.*,
+        COALESCE(so.is_favorite, 0) as is_favorite,
+        COALESCE(so.needs_follow_up, 0) as needs_follow_up,
+        COALESCE(so.is_pinned, 0) as is_pinned,
+        COALESCE((SELECT COUNT(*) FROM session_notes sn WHERE sn.session_id = s.id), 0) as note_count,
+        (SELECT content_text FROM messages WHERE session_id = s.id AND role = 'user' ORDER BY timestamp ASC LIMIT 1) as first_user_message,
+        (SELECT COUNT(*) FROM tool_uses WHERE session_id = s.id) as tool_call_count
+      FROM sessions s
+      LEFT JOIN session_ops so ON so.session_id = s.id
+      ORDER BY started_at DESC LIMIT 5
+    `).all().map((row) => serializeSessionRow(row as Record<string, unknown>));
+
+    const prioritySessions = db.prepare(`
+      SELECT s.*,
+        COALESCE(so.is_favorite, 0) as is_favorite,
+        COALESCE(so.needs_follow_up, 0) as needs_follow_up,
+        COALESCE(so.is_pinned, 0) as is_pinned,
+        COALESCE((SELECT COUNT(*) FROM session_notes sn WHERE sn.session_id = s.id), 0) as note_count,
+        (SELECT content_text FROM messages WHERE session_id = s.id AND role = 'user' ORDER BY timestamp ASC LIMIT 1) as first_user_message,
+        (SELECT COUNT(*) FROM tool_uses WHERE session_id = s.id) as tool_call_count
+      FROM sessions s
+      INNER JOIN session_ops so ON so.session_id = s.id
+      WHERE so.is_favorite = 1 OR so.needs_follow_up = 1 OR so.is_pinned = 1
+      ORDER BY so.is_pinned DESC, so.needs_follow_up DESC, so.is_favorite DESC, so.updated_at DESC
+      LIMIT 6
+    `).all().map((row) => serializeSessionRow(row as Record<string, unknown>));
+
     return {
       ...totals,
       totalToolCalls,
       totalFiles,
+      opsSummary,
       recentDaily,
       topTools,
+      recentSessions,
+      prioritySessions,
     };
   });
 }

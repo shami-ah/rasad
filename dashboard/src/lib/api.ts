@@ -1,9 +1,13 @@
 const BASE = "/api";
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json() as Promise<T>;
+}
+
+async function fetchJson<T>(path: string): Promise<T> {
+  return requestJson<T>(path);
 }
 
 export const api = {
@@ -29,6 +33,40 @@ export const api = {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return fetchJson<CompareData>(`/analytics/compare${qs}`);
   },
+  sessionOps: (id: string) => fetchJson<SessionOpsData>(`/sessions/${id}/ops`),
+  updateSessionOps: (id: string, patch: Partial<SessionOpsState>) => requestJson<{ sessionId: string; state: SessionOpsState }>(
+    `/sessions/${id}/ops`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  ),
+  createSessionNote: (id: string, body: string) => requestJson<{ note: SessionNote }>(
+    `/sessions/${id}/notes`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    },
+  ),
+  updateSessionNote: (id: string, noteId: number, body: string) => requestJson<{ note: Partial<SessionNote> }>(
+    `/sessions/${id}/notes/${noteId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    },
+  ),
+  deleteSessionNote: (id: string, noteId: number) => requestJson<{ ok: boolean }>(
+    `/sessions/${id}/notes/${noteId}`,
+    { method: "DELETE" },
+  ),
+  aiSummary: (id: string, apiKey?: string) => {
+    const qs = apiKey ? `?${new URLSearchParams({ apiKey }).toString()}` : "";
+    return fetchJson<AISummaryData | { error: string }>(`/analytics/summarize/${id}${qs}`);
+  },
+  integrations: () => fetchJson<IntegrationData>("/integrations"),
   search: (q: string) => fetchJson<SearchResult>(`/search?q=${encodeURIComponent(q)}`),
   projects: () => fetchJson<{ projects: ProjectInfo[] }>("/projects"),
   models: () => fetchJson<{ models: ModelInfo[] }>("/models"),
@@ -45,8 +83,16 @@ export interface OverviewData {
   last_session: string;
   totalToolCalls: number;
   totalFiles: number;
+  opsSummary?: {
+    favorite_count: number;
+    follow_up_count: number;
+    pinned_count: number;
+    note_count: number;
+  };
   recentDaily: DailyData[];
   topTools: { tool_name: string; count: number }[];
+  recentSessions?: Session[];
+  prioritySessions?: Session[];
 }
 
 export interface Session {
@@ -63,6 +109,87 @@ export interface Session {
   estimated_cost_usd: number;
   cwd: string;
   git_branch: string | null;
+  duration_ms: number;
+  status: "active" | "completed";
+  first_user_message: string | null;
+  tool_call_count: number;
+  note_count: number;
+  is_favorite: boolean;
+  needs_follow_up: boolean;
+  is_pinned: boolean;
+  ops_updated_at?: string | null;
+}
+
+export interface SessionOpsState {
+  isFavorite: boolean;
+  needsFollowUp: boolean;
+  isPinned: boolean;
+  updatedAt: string | null;
+}
+
+export interface SessionNote {
+  id: number;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionOpsData {
+  sessionId: string;
+  state: SessionOpsState;
+  notes: SessionNote[];
+}
+
+export interface AISummaryData {
+  sessionId: string;
+  provider: string;
+  model: string;
+  summary: string;
+  keyDecisions: string[];
+  whatWentWell: string[];
+  whatCouldImprove: string[];
+  technicalHighlights: string[];
+  filesImpact: string;
+  costAssessment: string;
+}
+
+export interface IntegrationTool {
+  id: string;
+  name: string;
+  description: string;
+  adapterReady: boolean;
+  detected: boolean;
+  paths: string[];
+  localSessionCount: number;
+  importedSessionCount: number;
+  totalCost: number;
+  lastSessionAt: string | null;
+  signalLevel: "full" | "strong" | "focused" | "limited" | "planned";
+  signalLabel: string;
+  bestFor: string;
+  rasadStrength: string;
+  watchout: string | null;
+  recommendedAction: {
+    label: string;
+    command: string;
+    reason: string;
+  };
+  commands: {
+    sync: string;
+    monitor: string;
+    sources: string;
+    setup: string | null;
+  };
+}
+
+export interface IntegrationData {
+  summary: {
+    totalKnown: number;
+    detectedCount: number;
+    readyCount: number;
+    activeCount: number;
+  };
+  tools: IntegrationTool[];
 }
 
 export interface DailyData {
@@ -114,6 +241,7 @@ export interface GhostMessage {
 
 export interface PassportData {
   sessionId: string;
+  source: string;
   project: string;
   model: string | null;
   date: string;
@@ -122,13 +250,24 @@ export interface PassportData {
   decisions: string[];
   filesTouched: { path: string; actions: string[]; count: number }[];
   toolsUsed: { tool: string; count: number; percentage: number }[];
-  keyMoments: { type: string; description: string }[];
-  cost: { total: number };
+  keyMoments: { type: string; description: string; timestamp?: string }[];
+  cost: { total: number; inputCost: number; outputCost: number; cacheReadSavings: number };
 }
 
 export interface TrajectoryData {
   tree: TrajectoryNode[];
-  stats: { totalMessages: number; totalToolCalls: number; uniqueTools: string[]; toolFrequency: Record<string, number>; filesRead: string[]; filesWritten: string[]; filesEdited: string[] };
+  stats: {
+    totalMessages: number;
+    totalToolCalls: number;
+    uniqueTools: string[];
+    toolFrequency: Record<string, number>;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    durationMs: number;
+    filesRead: string[];
+    filesWritten: string[];
+    filesEdited: string[];
+  };
 }
 
 export interface TrajectoryNode {
@@ -139,8 +278,16 @@ export interface TrajectoryNode {
   model: string | null;
   inputTokens: number;
   outputTokens: number;
-  toolCalls: { toolName: string; inputPreview: string }[];
+  toolCalls: {
+    toolName: string;
+    inputPreview: string;
+    resultPreview?: string | null;
+    success?: boolean | null;
+    durationMs?: number | null;
+  }[];
   children: TrajectoryNode[];
+  isSidechain?: boolean;
+  hasThinking?: boolean;
 }
 
 export interface DriftReport {

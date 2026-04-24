@@ -21,9 +21,10 @@ export interface AdapterInfo {
   detected: boolean;
   sessionCount: number;
   dataSize: string;
+  adapterReady: boolean;
 }
 
-interface KnownTool {
+export interface KnownTool {
   id: string;
   name: string;
   description: string;
@@ -149,6 +150,7 @@ export function detectInstalledTools(): AdapterInfo[] {
       detected,
       sessionCount,
       dataSize,
+      adapterReady: tool.adapterReady,
     });
   }
 

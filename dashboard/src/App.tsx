@@ -15,85 +15,89 @@ import { Recommend } from "./pages/Recommend";
 import { Quality } from "./pages/Quality";
 import { Wrapped } from "./pages/Wrapped";
 import { XRayPage } from "./pages/XRay";
+import { IntegrationsPage } from "./pages/Integrations";
 import { useLiveUpdates } from "./hooks/useLive";
 
-const NAV = [
-  { to: "/", icon: Telescope, label: "Overview", hint: "Your AI activity summary" },
-  { to: "/timeline", icon: Layers, label: "All Sessions", hint: "Browse every session" },
-  { to: "/xray", icon: Zap, label: "X-Ray", hint: "See every AI action" },
-  { to: "/karma", icon: BarChart3, label: "Spending", hint: "Where your money goes" },
-  { to: "/compare", icon: Layers, label: "Models", hint: "Compare AI models" },
-  { to: "/recommend", icon: AlertTriangle, label: "Savings", hint: "Tips to reduce cost" },
-  { to: "/quality", icon: BarChart3, label: "Quality", hint: "Session grades A-F" },
-  { to: "/wrapped", icon: Telescope, label: "Wrapped", hint: "Shareable stats card" },
-  { to: "/drift", icon: AlertTriangle, label: "Drift", hint: "Pattern inconsistencies" },
-  { to: "/search", icon: Search, label: "Search", hint: "Find past conversations" },
+const NAV_MAIN = [
+  { to: "/", icon: Telescope, label: "Cockpit", hint: "Daily AI control surface" },
+  { to: "/timeline", icon: Layers, label: "Sessions", hint: "Browse and triage sessions" },
+  { to: "/agents", icon: Zap, label: "Agents", hint: "Coverage across coding agents" },
+  { to: "/search", icon: Search, label: "Search", hint: "Pull up past conversations fast" },
 ];
 
-function Sidebar(): React.ReactElement {
+const NAV_INSIGHTS = [
+  { to: "/karma", icon: BarChart3, label: "Spending", hint: "See where money goes" },
+  { to: "/compare", icon: Layers, label: "Models", hint: "Choose the right model" },
+  { to: "/quality", icon: BarChart3, label: "Grades", hint: "See which sessions are efficient" },
+  { to: "/recommend", icon: AlertTriangle, label: "Savings", hint: "Find waste and cut cost" },
+  { to: "/wrapped", icon: Telescope, label: "Highlights", hint: "Shareable weekly view" },
+  { to: "/drift", icon: AlertTriangle, label: "Patterns", hint: "Spot behavior drift" },
+];
+
+function NavItem({ to, icon: Icon, label, hint, end }: {
+  to: string; icon: React.ComponentType<{ size: number }>; label: string; hint: string; end?: boolean;
+}): React.ReactElement {
   const location = useLocation();
+  const isActive = end ? location.pathname === to : location.pathname.startsWith(to);
   return (
-    <aside className="w-56 border-r border-zinc-800 bg-zinc-950 flex flex-col h-screen fixed">
+    <NavLink
+      to={to}
+      end={end}
+      className={`flex items-center gap-2.5 px-4 py-2 text-sm transition-colors ${
+        isActive ? "text-blue-400 bg-blue-500/10 border-r-2 border-blue-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+      }`}
+      title={hint}
+    >
+      <Icon size={15} />
+      <span>{label}</span>
+    </NavLink>
+  );
+}
+
+function SidebarSection({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement {
+  return (
+    <div className="mt-4">
+      <p className="px-4 pb-1 text-[10px] text-zinc-600 uppercase tracking-wider font-medium">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function Sidebar(): React.ReactElement {
+  return (
+    <aside className="w-52 border-r border-zinc-800 bg-zinc-950 flex flex-col h-screen fixed">
       <div className="p-4 border-b border-zinc-800">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🔭</span>
-          <span className="font-bold text-white tracking-tight">Rasad</span>
-          <span className="text-[10px] text-zinc-500 font-mono">v0.1.0</span>
+          <span className="font-bold text-white tracking-tight text-base">Rasad</span>
+          <span className="text-[10px] text-zinc-600 font-mono">v0.1</span>
         </div>
-        <p className="text-[10px] text-zinc-600 mt-1">AI Observatory</p>
+        <p className="text-[10px] text-zinc-600 mt-0.5">See, understand, and steer your AI work</p>
       </div>
       <nav className="flex-1 py-2 overflow-y-auto">
-        {NAV.map(({ to, icon: Icon, label, hint }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors ${
-                isActive ? "text-blue-400 bg-blue-500/10 border-r-2 border-blue-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
-              }`
-            }
-            title={hint}
-          >
-            <Icon size={16} />
-            <div>
-              <span>{label}</span>
-              <span className="block text-[9px] text-zinc-600 -mt-0.5">{hint}</span>
-            </div>
-          </NavLink>
+        {NAV_MAIN.map((item) => (
+          <NavItem key={item.to} {...item} end={item.to === "/"} />
         ))}
 
-        <div className="px-4 pt-4 pb-1">
-          <p className="text-[10px] text-zinc-600 uppercase tracking-wider font-medium">Deep Dive</p>
-          <p className="text-[9px] text-zinc-700 mt-0.5">Pick a session to analyze</p>
-        </div>
-        {[
-          { to: "/trajectory", icon: GitBranch, label: "Trajectory", hint: "Step-by-step execution" },
-          { to: "/context", icon: Brain, label: "Memory", hint: "What the AI forgot" },
-          { to: "/passport", icon: FileText, label: "Summary", hint: "Session at a glance" },
-          { to: "/vibe-diff", icon: Diff, label: "Review", hint: "What the AI changed" },
-        ].map(({ to, icon: Icon, label, hint }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={() => {
-              const isActive = location.pathname.startsWith(to);
-              return `flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors ${
-                isActive ? "text-blue-400 bg-blue-500/10 border-r-2 border-blue-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
-              }`;
-            }}
-            title={hint}
-          >
-            <Icon size={16} />
-            <div>
-              <span>{label}</span>
-              <span className="block text-[9px] text-zinc-600 -mt-0.5">{hint}</span>
-            </div>
-          </NavLink>
-        ))}
+        <SidebarSection title="Control">
+          {NAV_INSIGHTS.map((item) => (
+            <NavItem key={item.to} {...item} />
+          ))}
+        </SidebarSection>
+
+        <SidebarSection title="Session Drilldown">
+          {[
+            { to: "/xray", icon: Zap, label: "X-Ray", hint: "Every action step by step" },
+            { to: "/trajectory", icon: GitBranch, label: "Steps", hint: "Execution path" },
+            { to: "/context", icon: Brain, label: "Memory", hint: "What the AI remembered" },
+            { to: "/passport", icon: FileText, label: "Summary", hint: "Session at a glance" },
+            { to: "/vibe-diff", icon: Diff, label: "Changes", hint: "What files changed" },
+          ].map((item) => (
+            <NavItem key={item.to} {...item} />
+          ))}
+        </SidebarSection>
       </nav>
       <div className="p-3 border-t border-zinc-800">
-        <p className="text-[9px] text-zinc-700 text-center">Local-first. Your data never leaves.</p>
+        <p className="text-[9px] text-zinc-700 text-center">Your data stays on your machine</p>
       </div>
     </aside>
   );
@@ -106,11 +110,12 @@ export function App(): React.ReactElement {
     <BrowserRouter>
       <div className="flex">
         <Sidebar />
-        <main className="ml-56 flex-1 min-h-screen">
+        <main className="ml-52 flex-1 min-h-screen">
           <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/timeline" element={<Timeline />} />
+            <Route path="/agents" element={<IntegrationsPage />} />
             <Route path="/xray" element={<XRayPage />} />
             <Route path="/xray/:id" element={<XRayPage />} />
             <Route path="/karma" element={<TokenKarma />} />

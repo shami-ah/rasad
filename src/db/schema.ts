@@ -78,6 +78,22 @@ export const SCHEMA_SQL = `
     error_count INTEGER NOT NULL DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS session_ops (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
+    needs_follow_up INTEGER NOT NULL DEFAULT 0,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS session_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   -- Indexes for common queries
   CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
   CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
@@ -88,6 +104,9 @@ export const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
   CREATE INDEX IF NOT EXISTS idx_sessions_model ON sessions(model);
+  CREATE INDEX IF NOT EXISTS idx_session_ops_follow_up ON session_ops(needs_follow_up);
+  CREATE INDEX IF NOT EXISTS idx_session_ops_pinned ON session_ops(is_pinned);
+  CREATE INDEX IF NOT EXISTS idx_session_notes_session ON session_notes(session_id);
 
   -- Full-text search on message content
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
