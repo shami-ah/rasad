@@ -50,7 +50,7 @@ export function App({ onExit }: Props): React.ReactElement {
         isPinned={pinnedSession !== undefined}
         onUnpin={() => setPinnedSession(undefined)}
       />
-      <Box key={currentView} flexDirection="column" marginTop={1} minHeight={15}>
+      <Box flexDirection="column" marginTop={1} minHeight={15}>
         {currentView === "overview" ? (
           <OverviewView stats={stats} width={width} />
         ) : currentView === "xray" ? (

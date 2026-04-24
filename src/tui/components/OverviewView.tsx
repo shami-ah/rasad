@@ -79,7 +79,7 @@ function humanizeEvent(event: LiveEvent, maxWidth: number): string {
   return clip(`${prefix}${detail}`, maxWidth);
 }
 
-export function OverviewView({ stats, width }: Props): React.ReactElement {
+export const OverviewView = React.memo(function OverviewView({ stats, width }: Props): React.ReactElement {
   const phase = PHASE_DISPLAY[stats.phase] ?? PHASE_DISPLAY.idle!;
   const barWidth = Math.max(12, width - 26);
   const leftWidth = Math.max(30, Math.floor((width - 6) * 0.62));
@@ -107,7 +107,12 @@ export function OverviewView({ stats, width }: Props): React.ReactElement {
       <Text dimColor>{"-".repeat(Math.max(1, width - 4))}</Text>
 
       <Box flexDirection="column">
-        <Text bold color="cyan">Session Health</Text>
+        <Box gap={1}>
+          <Text bold color="cyan">Session Health</Text>
+          <Text dimColor>·</Text>
+          <Text color="white" bold>{stats.project}</Text>
+          <Text dimColor>{stats.sessionId}</Text>
+        </Box>
         <Text>
           <Text dimColor>Memory  </Text>
           <Text color={contextColor as "green"}>{buildBar(stats.contextPercent, barWidth)}</Text>
@@ -135,28 +140,40 @@ export function OverviewView({ stats, width }: Props): React.ReactElement {
         <Box flexDirection="column" width={leftWidth}>
           <Text bold color="cyan">What The AI Is Doing</Text>
           {recentEvents.length === 0 ? (
-            <Text dimColor>Waiting for visible activity.</Text>
+            <>
+              <Text dimColor>Waiting for visible activity.</Text>
+              {Array.from({ length: 7 }, (_, i) => <Text key={i}> </Text>)}
+            </>
           ) : (
-            recentEvents.map((event, index) => (
-              <Text key={index} color={index === recentEvents.length - 1 ? "white" : undefined} bold={index === recentEvents.length - 1}>
-                {humanizeEvent(event, leftWidth - 2)}
-              </Text>
-            ))
+            <>
+              {recentEvents.map((event, index) => (
+                <Text key={index} color={index === recentEvents.length - 1 ? "white" : undefined} bold={index === recentEvents.length - 1}>
+                  {humanizeEvent(event, leftWidth - 2)}
+                </Text>
+              ))}
+              {Array.from({ length: Math.max(0, 8 - recentEvents.length) }, (_, i) => <Text key={`pad-${i}`}> </Text>)}
+            </>
           )}
         </Box>
 
         <Box flexDirection="column" width={rightWidth} paddingLeft={2}>
           <Text bold color="blue">Under The Hood</Text>
           {topTools.length === 0 ? (
-            <Text dimColor>No tool activity yet.</Text>
+            <>
+              <Text dimColor>No tool activity yet.</Text>
+              {Array.from({ length: 5 }, (_, i) => <Text key={i}> </Text>)}
+            </>
           ) : (
-            topTools.map(([tool, count]) => (
-              <Text key={tool}>
-                <Text dimColor>{`${clip(tool, 10).padEnd(10)}`}</Text>
-                <Text color="blue">{buildBar((count / maxToolCount) * 100, Math.max(6, rightWidth - 18))}</Text>
-                <Text dimColor>{` ${count}`}</Text>
-              </Text>
-            ))
+            <>
+              {topTools.map(([tool, count]) => (
+                <Text key={tool}>
+                  <Text dimColor>{`${clip(tool, 10).padEnd(10)}`}</Text>
+                  <Text color="blue">{buildBar((count / maxToolCount) * 100, Math.max(6, rightWidth - 18))}</Text>
+                  <Text dimColor>{` ${count}`}</Text>
+                </Text>
+              ))}
+              {Array.from({ length: Math.max(0, 5 - topTools.length) }, (_, i) => <Text key={`pad-${i}`}> </Text>)}
+            </>
           )}
           <Text dimColor>{`${stats.filesWritten.size} new  ·  ${stats.filesEdited.size} edited  ·  ${stats.filesRead.size} read`}</Text>
         </Box>
@@ -173,7 +190,9 @@ export function OverviewView({ stats, width }: Props): React.ReactElement {
           <Text dimColor>Latest ask </Text>
           <Text>{clip(stats.lastUserMessage, width - 16)}</Text>
         </Box>
-      ) : null}
+      ) : (
+        <Box><Text> </Text></Box>
+      )}
     </Box>
   );
-}
+});

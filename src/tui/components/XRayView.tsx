@@ -7,10 +7,10 @@ interface Props {
   width: number;
 }
 
-const OUTCOME: Record<ActionOutcome, { icon: string; color: string }> = {
-  ok:    { icon: "✓", color: "green" },
-  error: { icon: "✗", color: "red" },
-  info:  { icon: "·", color: "blue" },
+const OUTCOME: Record<ActionOutcome, { icon: string; color: string; label: string }> = {
+  ok:    { icon: "\u2713", color: "green", label: "done" },
+  error: { icon: "\u2717", color: "red", label: "failed" },
+  info:  { icon: "\u00B7", color: "blue", label: "info" },
 };
 
 const TOOL_COLOR: Record<string, string> = {
@@ -18,6 +18,63 @@ const TOOL_COLOR: Record<string, string> = {
   Edit: "yellow", Write: "green", Bash: "magenta",
   Agent: "blue", WebFetch: "blue", WebSearch: "blue",
 };
+
+/** Human-readable description for each action type — what non-technical users see. */
+function humanDescription(ev: LiveEvent, maxLen: number): string {
+  let desc = "";
+
+  if (ev.toolName === "Edit" && ev.filePath) {
+    const file = shortFile(ev.filePath);
+    const removed = ev.oldLineCount ?? 0;
+    const added = ev.newLineCount ?? 0;
+    if (removed === 0 && added > 0) desc = `Added ${added} lines to ${file}`;
+    else if (added === 0 && removed > 0) desc = `Removed ${removed} lines from ${file}`;
+    else desc = `Changed ${file} (-${removed} +${added})`;
+  } else if (ev.toolName === "Write" && ev.filePath) {
+    const file = shortFile(ev.filePath);
+    desc = `Created ${file} (${ev.writeLineCount ?? 0} lines)`;
+  } else if (ev.toolName === "Read" && ev.filePath) {
+    desc = `Read ${shortFile(ev.filePath)}`;
+  } else if (ev.toolName === "Bash") {
+    const cmd = ev.bashCommand ?? ev.detail;
+    // Simplify common bash commands
+    if (cmd.startsWith("npm run ")) desc = `Running ${cmd.slice(4)}`;
+    else if (cmd.startsWith("npx ")) desc = `Running ${cmd.slice(4)}`;
+    else if (cmd.startsWith("git ")) desc = `Git: ${cmd.slice(4)}`;
+    else if (cmd.startsWith("cd ")) desc = `Navigated to ${cmd.slice(3).split("/").pop()}`;
+    else if (cmd.startsWith("ls ")) desc = `Listed files`;
+    else if (cmd.startsWith("cat ")) desc = `Read ${cmd.slice(4).split("/").pop()}`;
+    else if (cmd.startsWith("node -e")) desc = `Ran a script`;
+    else if (cmd.startsWith("curl ")) desc = `Fetched a URL`;
+    else if (cmd.startsWith("pgrep ")) desc = `Checked running processes`;
+    else desc = `Ran: ${cmd}`;
+    if (ev.exitCode !== undefined && ev.exitCode !== 0) desc += ` (failed)`;
+  } else if (ev.toolName === "Grep") {
+    desc = ev.searchPattern ? `Searched for "${ev.searchPattern}"` : "Searched code";
+    if (ev.matchCount !== undefined) desc += ` \u2192 ${ev.matchCount} results`;
+  } else if (ev.toolName === "Glob") {
+    desc = ev.searchPattern ? `Found files matching "${ev.searchPattern}"` : "Found files";
+    if (ev.matchCount !== undefined) desc += ` \u2192 ${ev.matchCount} found`;
+  } else if (ev.toolName === "Agent") {
+    desc = "Launched a sub-agent";
+  } else if (ev.toolName === "WebFetch" || ev.toolName === "WebSearch") {
+    desc = "Searched the web";
+  } else if (ev.filePath) {
+    desc = shortFile(ev.filePath);
+  } else {
+    desc = ev.detail || ev.label;
+  }
+
+  return desc.length > maxLen ? desc.slice(0, maxLen - 1) + "\u2026" : desc;
+}
+
+function shortFile(path: string): string {
+  return path.split("/").slice(-2).join("/");
+}
+
+function clipLine(line: string, max: number): string {
+  return line.length > max ? line.slice(0, max - 1) + "\u2026" : line;
+}
 
 export function XRayView({ stats, width }: Props): React.ReactElement {
   const [selectedIdx, setSelectedIdx] = useState(-1);
@@ -63,12 +120,12 @@ export function XRayView({ stats, width }: Props): React.ReactElement {
       <Box gap={2}>
         <Text bold color="cyan">X-RAY</Text>
         <Text dimColor>|</Text>
-        <Text color="green">✓ {okN}</Text>
-        <Text color="red">✗ {errN}</Text>
-        <Text color="blue">· {infoN}</Text>
-        <Text dimColor>| {allEvents.length} actions</Text>
+        <Text color="green">{okN} done</Text>
+        <Text color="red">{errN > 0 ? `${errN} failed` : ""}</Text>
+        <Text color="blue">{infoN} read</Text>
+        <Text dimColor>| {allEvents.length} total actions</Text>
       </Box>
-      <Box><Text dimColor>{"─".repeat(Math.max(1, width - 4))}</Text></Box>
+      <Box><Text dimColor>{"\u2500".repeat(Math.max(1, width - 4))}</Text></Box>
 
       <Box flexDirection="row">
         {/* Timeline list */}
@@ -84,7 +141,7 @@ export function XRayView({ stats, width }: Props): React.ReactElement {
             })
           )}
           {!hasSelection && allEvents.length > visibleRows && (
-            <Text dimColor>  ↑ {allEvents.length - visibleRows} more — press [j] to browse</Text>
+            <Text dimColor>  \u2191 {allEvents.length - visibleRows} more \u2014 press [j] to browse</Text>
           )}
         </Box>
 
@@ -97,14 +154,19 @@ export function XRayView({ stats, width }: Props): React.ReactElement {
       </Box>
 
       {/* Quality heatmap */}
-      <Box><Text dimColor>{"─".repeat(Math.max(1, width - 4))}</Text></Box>
-      <Box paddingLeft={1}>
-        <Text dimColor>Health </Text>
-        {allEvents.slice(-Math.min(60, width - 10)).map((ev, i) => (
-          <Text key={i} color={OUTCOME[ev.outcome].color as "green"}>{"█"}</Text>
+      <Box><Text dimColor>{"\u2500".repeat(Math.max(1, width - 4))}</Text></Box>
+      <Box paddingLeft={1} gap={1}>
+        <Text dimColor>Health</Text>
+        {allEvents.slice(-Math.min(60, width - 14)).map((ev, i) => (
+          <Text key={i} color={OUTCOME[ev.outcome].color as "green"}>{"\u2588"}</Text>
         ))}
       </Box>
-      <Text dimColor>  [j/k] browse  [esc] back to live tail</Text>
+      <Box paddingLeft={1} gap={2}>
+        <Text dimColor>[j/k] browse  [esc] live tail</Text>
+        <Text dimColor>\u2588</Text><Text dimColor>=done</Text>
+        <Text color="red">{"\u2588"}</Text><Text dimColor>=error</Text>
+        <Text color="blue">{"\u2588"}</Text><Text dimColor>=read</Text>
+      </Box>
     </Box>
   );
 }
@@ -113,45 +175,29 @@ function TimelineRow({ ev, sel, latest, w }: { ev: LiveEvent; sel: boolean; late
   const oc = OUTCOME[ev.outcome];
   const tc = TOOL_COLOR[ev.toolName ?? ""] ?? "white";
   const time = ev.time.slice(0, 5);
-  const tool = (ev.toolName ?? "?").padEnd(6).slice(0, 6);
 
-  // Build description — use true line counts (not truncated content)
-  let desc = "";
-  if (ev.toolName === "Edit" && ev.filePath) {
-    const file = ev.filePath.split("/").slice(-2).join("/");
-    const removed = ev.oldLineCount ?? 0;
-    const added = ev.newLineCount ?? 0;
-    desc = `${file}  -${removed} +${added}`;
-  } else if (ev.toolName === "Write" && ev.filePath) {
-    const file = ev.filePath.split("/").slice(-2).join("/");
-    desc = `${file}  +${ev.writeLineCount ?? 0} lines (new)`;
-  } else if (ev.toolName === "Bash") {
-    desc = ev.bashCommand?.slice(0, w - 22) ?? ev.detail;
-    if (ev.exitCode !== undefined && ev.exitCode !== 0) desc += ` [exit ${ev.exitCode}]`;
-  } else if (ev.toolName === "Grep" || ev.toolName === "Glob") {
-    desc = ev.searchPattern ? `"${ev.searchPattern}"` : ev.detail;
-    if (ev.matchCount !== undefined) desc += ` → ${ev.matchCount} hits`;
-  } else if (ev.filePath) {
-    desc = ev.filePath.split("/").slice(-2).join("/");
-  } else {
-    desc = ev.detail;
-  }
+  // Human-readable action label
+  const ACTION_LABELS: Record<string, string> = {
+    Read: "Read", Edit: "Edit", Write: "New", Bash: "Run",
+    Grep: "Search", Glob: "Find", Agent: "Agent",
+    WebFetch: "Web", WebSearch: "Web",
+  };
+  const actionLabel = (ACTION_LABELS[ev.toolName ?? ""] ?? ev.toolName ?? "?").padEnd(6).slice(0, 6);
 
-  const maxDesc = Math.max(10, w - 18);
-  if (desc.length > maxDesc) desc = desc.slice(0, maxDesc - 1) + "…";
+  const desc = humanDescription(ev, Math.max(10, w - 18));
+  const hasDetail = ev.oldContent || ev.newContent || ev.writeContent || ev.bashCommand || ev.readPreview || ev.searchPattern;
 
   const bgColor = sel ? "cyan" : undefined;
   const fgForSel = sel ? "black" : undefined;
-  const hasDetail = ev.oldContent || ev.newContent || ev.writeContent || ev.bashCommand || ev.readPreview || ev.searchPattern;
 
   return (
     <Box>
       <Text backgroundColor={bgColor} color={fgForSel}>
         <Text dimColor={!sel}>{time} </Text>
         <Text color={sel ? "black" : oc.color as "green"}>{oc.icon} </Text>
-        <Text color={sel ? "black" : tc as "green"} bold={latest}>{tool} </Text>
+        <Text color={sel ? "black" : tc as "green"} bold={latest}>{actionLabel} </Text>
         <Text color={fgForSel} bold={latest}>{desc}</Text>
-        {hasDetail && !sel && <Text dimColor> ▸</Text>}
+        {hasDetail && !sel && <Text dimColor> \u25B8</Text>}
       </Text>
     </Box>
   );
@@ -176,7 +222,7 @@ function CappedLines({ lines, color, prefix, maxWidth, totalLines }: {
         <Text key={i} color={color as "green"} dimColor={color === "red"}>  {prefix}{clipLine(line, maxWidth)}</Text>
       ))}
       {remaining > 0 && (
-        <Text dimColor>  … +{remaining} more lines</Text>
+        <Text dimColor>  \u2026 +{remaining} more lines</Text>
       )}
     </Box>
   );
@@ -192,16 +238,16 @@ function DetailPanel({ ev, w }: { ev: LiveEvent; w: number }): React.ReactElemen
       <Text bold color="cyan">{ev.toolName ?? ev.label}</Text>
       <Box gap={2}>
         <Text dimColor>{ev.time}</Text>
-        <Text color={oc.color as "green"}>{oc.icon} {ev.outcome}</Text>
+        <Text color={oc.color as "green"}>{oc.icon} {oc.label}</Text>
       </Box>
       {ev.filePath && <Text color="white">{ev.filePath.split("/").slice(-3).join("/")}</Text>}
 
       {/* ── EDIT ── */}
       {ev.toolName === "Edit" && ev.oldContent && ev.newContent && (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold color="red">  REMOVED ({ev.oldLineCount ?? "?"} lines):</Text>
+          <Text bold color="red">  Removed ({ev.oldLineCount ?? "?"} lines):</Text>
           <CappedLines lines={ev.oldContent.split("\n")} color="red" prefix="- " maxWidth={cw} totalLines={ev.oldLineCount} />
-          <Text bold color="green">  ADDED ({ev.newLineCount ?? "?"} lines):</Text>
+          <Text bold color="green">  Added ({ev.newLineCount ?? "?"} lines):</Text>
           <CappedLines lines={ev.newContent.split("\n")} color="green" prefix="+ " maxWidth={cw} totalLines={ev.newLineCount} />
         </Box>
       )}
@@ -209,7 +255,7 @@ function DetailPanel({ ev, w }: { ev: LiveEvent; w: number }): React.ReactElemen
       {/* ── WRITE ── */}
       {ev.toolName === "Write" && ev.writeContent && (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold color="green">  NEW FILE ({ev.writeLineCount ?? "?"} lines):</Text>
+          <Text bold color="green">  New file ({ev.writeLineCount ?? "?"} lines):</Text>
           <CappedLines lines={ev.writeContent.split("\n")} color="green" prefix="+ " maxWidth={cw} totalLines={ev.writeLineCount} />
         </Box>
       )}
@@ -219,7 +265,7 @@ function DetailPanel({ ev, w }: { ev: LiveEvent; w: number }): React.ReactElemen
         <Box flexDirection="column" marginTop={1}>
           <Text bold color="magenta">  $ {clipLine(ev.bashCommand ?? ev.detail, cw)}</Text>
           {ev.exitCode !== undefined && (
-            <Text color={ev.exitCode === 0 ? "green" : "red"}>  exit {ev.exitCode}</Text>
+            <Text color={ev.exitCode === 0 ? "green" : "red"}>  {ev.exitCode === 0 ? "Succeeded" : `Failed (exit ${ev.exitCode})`}</Text>
           )}
           {ev.bashOutput && (
             <CappedLines lines={ev.bashOutput.split("\n")} color="" prefix="" maxWidth={cw} />
@@ -237,27 +283,23 @@ function DetailPanel({ ev, w }: { ev: LiveEvent; w: number }): React.ReactElemen
       {/* ── GREP/GLOB ── */}
       {(ev.toolName === "Grep" || ev.toolName === "Glob") && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="cyan">  pattern: {ev.searchPattern ?? ev.detail}</Text>
-          {ev.matchCount !== undefined && <Text dimColor>  {ev.matchCount} matches found</Text>}
+          <Text color="cyan">  Pattern: {ev.searchPattern ?? ev.detail}</Text>
+          {ev.matchCount !== undefined && <Text dimColor>  {ev.matchCount} results found</Text>}
         </Box>
       )}
 
       {/* ── ERROR ── */}
       {ev.errorPreview && (
         <Box flexDirection="column" marginTop={1}>
-          <Text bold color="red">  ERROR:</Text>
+          <Text bold color="red">  Error:</Text>
           <Text color="red">  {clipLine(ev.errorPreview, cw)}</Text>
         </Box>
       )}
 
-      {/* Dashboard hint for full content */}
+      {/* Footer */}
       <Box marginTop={1}>
-        <Text dimColor>  Full diff → localhost:9847/xray</Text>
+        <Text dimColor>  Full details at localhost:9847/xray</Text>
       </Box>
     </Box>
   );
-}
-
-function clipLine(line: string, max: number): string {
-  return line.length > max ? line.slice(0, max - 1) + "…" : line;
 }

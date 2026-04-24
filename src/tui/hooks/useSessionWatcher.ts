@@ -326,7 +326,22 @@ export function useSessionWatcher(intervalMs = 2000, pinnedSessionId?: string): 
         parsed.contextHistory = [...contextHistoryRef.current];
         parsed.costHistory = [...costHistoryRef.current];
 
-        setStats(parsed);
+        // Only update state if something meaningful changed — prevents Ink re-render flicker
+        setStats((prev) => {
+          if (
+            prev.sessionId === parsed.sessionId &&
+            prev.messageCount === parsed.messageCount &&
+            prev.toolCalls === parsed.toolCalls &&
+            prev.inputTokens === parsed.inputTokens &&
+            prev.outputTokens === parsed.outputTokens &&
+            prev.events.length === parsed.events.length &&
+            Math.abs(prev.contextPercent - parsed.contextPercent) < 0.1 &&
+            Math.abs(prev.estimatedCost - parsed.estimatedCost) < 0.001
+          ) {
+            return prev;
+          }
+          return parsed;
+        });
       } catch { /* file might be mid-write */ }
     };
 

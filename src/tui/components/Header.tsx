@@ -9,26 +9,26 @@ interface Props {
   onUnpin?: () => void;
 }
 
-export function Header({ project, sessionId, isActive, isPinned }: Props): React.ReactElement {
+export const Header = React.memo(function Header({ project, sessionId, isActive, isPinned }: Props): React.ReactElement {
   return (
     <Box paddingLeft={1} gap={1}>
-      <Text bold color="cyan"> RASAD</Text>
+      <Text bold color="cyan">Rasad Live</Text>
       <Text dimColor>|</Text>
       {isActive ? (
         <>
           <Text color="white" bold>{project}</Text>
           <Text dimColor>|</Text>
-          <Text dimColor>{sessionId}</Text>
+          <Text dimColor>{`session ${sessionId}`}</Text>
           <Text dimColor>|</Text>
           {isPinned ? (
-            <Text color="yellow" bold> PINNED</Text>
+            <Text color="yellow" bold>PINNED</Text>
           ) : (
-            <Text color="green" bold> LIVE</Text>
+            <Text color="green" bold>LIVE</Text>
           )}
         </>
       ) : (
-        <Text color="yellow"> Waiting for active session...</Text>
+        <Text color="yellow">Waiting for an active session...</Text>
       )}
     </Box>
   );
-}
+});

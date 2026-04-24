@@ -63,8 +63,6 @@ export function useKeyboard(onQuit: () => void, onSessionSwitch?: () => void): K
     }
 
     if (nextView !== null && nextView !== currentView) {
-      // Clear screen before switching to reduce Ink ghost artifacts
-      process.stdout.write("\x1B[2J\x1B[H");
       setCurrentView(nextView);
     }
   });
