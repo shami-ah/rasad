@@ -102,6 +102,33 @@ function generateTips(s: LiveStats): Tip[] {
     }
   }
 
+  // ── CAMEL phase coaching ──
+  // No planning phase: AI went straight to editing
+  const totalEdits = (s.toolBreakdown.get("Edit") ?? 0) + (s.toolBreakdown.get("Write") ?? 0);
+  const totalReads = (s.toolBreakdown.get("Read") ?? 0) + (s.toolBreakdown.get("Grep") ?? 0) + (s.toolBreakdown.get("Glob") ?? 0);
+  if (totalEdits > 3 && totalReads < 2 && s.toolCalls > 5) {
+    tips.push({
+      severity: "warning",
+      title: "No planning phase — AI edited without reading first",
+      explanation: "Best results come from a plan→execute→verify cycle. This session jumped straight to editing without understanding the codebase.",
+      action: "Next time, start with: 'Read the relevant files first, then make a plan before editing.'",
+    });
+  }
+
+  // No verification phase: lots of edits but no bash at end
+  if (totalEdits > 5 && s.events.length > 10) {
+    const lastQuarter = s.events.slice(-Math.ceil(s.events.length / 4));
+    const endBash = lastQuarter.filter((e) => e.toolName === "Bash").length;
+    if (endBash === 0) {
+      tips.push({
+        severity: "tip",
+        title: "Session ended without verification",
+        explanation: "No tests or checks ran at the end of the session. A quick verification pass catches mistakes before they become expensive.",
+        action: "End sessions with: 'Run tests and typecheck to verify everything works.'",
+      });
+    }
+  }
+
   // ── Retry loop: same file edited 4+ times ──
   const editFileCounts = new Map<string, number>();
   for (const event of s.events) {

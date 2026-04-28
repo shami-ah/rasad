@@ -84,7 +84,7 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
   factors.push({
     name: "Productivity",
     score: productivityScore,
-    weight: 0.3,
+    weight: 0.25,
     detail: filesChanged > 0
       ? `$${costPerFile.toFixed(2)} per file changed (${filesChanged} files)`
       : "No files were changed",
@@ -107,7 +107,7 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
   factors.push({
     name: "First-attempt success",
     score: retryScore,
-    weight: 0.25,
+    weight: 0.20,
     detail: retryRate > 0
       ? `${(retryRate * 100).toFixed(0)}% of edits were retries on the same file`
       : "No retries detected — clean execution",
@@ -127,7 +127,7 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
   factors.push({
     name: "Tool usage",
     score: toolScore,
-    weight: 0.15,
+    weight: 0.13,
     detail: `${uniqueTools} different tools, ${totalToolCalls} total calls`,
   });
 
@@ -142,7 +142,7 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
   factors.push({
     name: "Action density",
     score: focusScore,
-    weight: 0.15,
+    weight: 0.12,
     detail: actionRatio > 0.3
       ? `${(actionRatio * 100).toFixed(0)}% of messages resulted in tool calls — focused session`
       : `${(actionRatio * 100).toFixed(0)}% action rate — more conversation than action`,
@@ -152,7 +152,46 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
     actions.push("Low action density — you're chatting more than coding. Try starting with a specific task like 'edit file X to fix Y'.");
   }
 
-  // 5. Cost efficiency vs model average
+  // 5. Critique ratio — sessions that self-correct get higher scores
+  const critiqueStats = db.prepare(`
+    SELECT COUNT(*) as critique_loops FROM (
+      SELECT t1.rowid FROM tool_uses t1
+      JOIN tool_uses t2 ON t1.session_id = t2.session_id
+        AND t2.rowid > t1.rowid
+        AND t2.tool_name IN ('Edit', 'Write')
+      JOIN tool_uses t3 ON t1.session_id = t3.session_id
+        AND t3.rowid > t2.rowid - 5
+        AND t3.rowid < t2.rowid
+        AND t3.tool_name = 'Bash'
+        AND t3.success = 0
+      WHERE t1.session_id = ?
+      LIMIT 20
+    )
+  `).get(sessionId) as { critique_loops: number };
+
+  const critiqueLoops = critiqueStats.critique_loops;
+  let critiqueScore: number;
+  if (critiqueLoops >= 3) critiqueScore = 90; // Agent actively self-corrects
+  else if (critiqueLoops >= 1) critiqueScore = 70;
+  else if (totalEdits > 5) critiqueScore = 40; // Lots of edits but zero verification
+  else critiqueScore = 60; // Short session, no verification expected
+
+  factors.push({
+    name: "Self-correction",
+    score: critiqueScore,
+    weight: 0.10,
+    detail: critiqueLoops > 0
+      ? `${critiqueLoops} edit→test→fix cycle(s) detected — agent verified its work`
+      : totalEdits > 5
+        ? "No verification detected — edits made without testing"
+        : "Session too short for verification patterns",
+  });
+
+  if (critiqueScore < 50) {
+    actions.push("The AI made changes without verifying them. Ask: 'Run the tests to check your changes.'");
+  }
+
+  // 6. Cost efficiency vs model average
   const modelAvg = db.prepare(`
     SELECT AVG(estimated_cost_usd) as avg_cost
     FROM sessions WHERE model = ? AND message_count >= 3
@@ -169,7 +208,7 @@ export function scoreSession(db: Database.Database, sessionId: string): SessionQ
   factors.push({
     name: "Cost efficiency",
     score: costScore,
-    weight: 0.15,
+    weight: 0.20,
     detail: `$${cost.toFixed(2)} (${costRatio < 1 ? "below" : costRatio.toFixed(1) + "x"} average for ${(session.model as string)?.replace("claude-", "")})`,
   });
 
@@ -268,18 +307,24 @@ export function getLeaderboard(db: Database.Database, limit: number = 5): Qualit
     const toolScore = row.unique_tools >= 5 ? 90 : row.unique_tools >= 3 ? 70 : row.unique_tools >= 1 ? 50 : 30;
     const focusScore = actionRatio > 0.5 ? 90 : actionRatio > 0.3 ? 70 : actionRatio > 0.1 ? 50 : 30;
     const costScore = costRatio < 0.5 ? 100 : costRatio < 1 ? 80 : costRatio < 2 ? 60 : costRatio < 3 ? 40 : 20;
+    // Self-correction: approximated from retry rate in leaderboard (no per-session critique query)
+    const critiqueScore = row.retry_edits > 2 ? 90 : row.retry_edits > 0 ? 70 : row.total_edits > 5 ? 40 : 60;
 
-    const score = Math.round(prodScore * 0.3 + retryScore * 0.25 + toolScore * 0.15 + focusScore * 0.15 + costScore * 0.15);
+    const score = Math.round(
+      prodScore * 0.25 + retryScore * 0.20 + toolScore * 0.13 +
+      focusScore * 0.12 + critiqueScore * 0.10 + costScore * 0.20,
+    );
     const grade: SessionQuality["grade"] = score >= 85 ? "A" : score >= 70 ? "B" : score >= 55 ? "C" : score >= 40 ? "D" : "F";
 
     return {
       sessionId: row.id, score, grade,
       factors: [
-        { name: "Productivity", score: prodScore, weight: 0.3, detail: `$${costPerFile.toFixed(2)}/file (${row.files_changed} files)` },
-        { name: "First-attempt", score: retryScore, weight: 0.25, detail: `${(retryRate * 100).toFixed(0)}% retry rate` },
-        { name: "Tool usage", score: toolScore, weight: 0.15, detail: `${row.unique_tools} tools, ${row.total_tools} calls` },
-        { name: "Action density", score: focusScore, weight: 0.15, detail: `${(actionRatio * 100).toFixed(0)}% action rate` },
-        { name: "Cost efficiency", score: costScore, weight: 0.15, detail: `${costRatio.toFixed(1)}x model avg` },
+        { name: "Productivity", score: prodScore, weight: 0.25, detail: `$${costPerFile.toFixed(2)}/file (${row.files_changed} files)` },
+        { name: "First-attempt", score: retryScore, weight: 0.20, detail: `${(retryRate * 100).toFixed(0)}% retry rate` },
+        { name: "Tool usage", score: toolScore, weight: 0.13, detail: `${row.unique_tools} tools, ${row.total_tools} calls` },
+        { name: "Action density", score: focusScore, weight: 0.12, detail: `${(actionRatio * 100).toFixed(0)}% action rate` },
+        { name: "Self-correction", score: critiqueScore, weight: 0.10, detail: `${row.retry_edits} correction cycle(s)` },
+        { name: "Cost efficiency", score: costScore, weight: 0.20, detail: `${costRatio.toFixed(1)}x model avg` },
       ],
       costPerFileChanged: costPerFile,
       costPerToolCall: row.total_tools > 0 ? row.cost / row.total_tools : row.cost,

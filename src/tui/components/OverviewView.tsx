@@ -7,11 +7,12 @@ interface Props {
   width: number;
 }
 
-const PHASE_DISPLAY: Record<string, { label: string; color: "cyan" | "green" | "yellow" | "gray" }> = {
-  exploring: { label: "Reading the codebase", color: "cyan" },
-  coding: { label: "Making changes", color: "green" },
-  testing: { label: "Running commands", color: "yellow" },
-  thinking: { label: "Reasoning through the task", color: "gray" },
+const PHASE_DISPLAY: Record<string, { label: string; color: "cyan" | "green" | "yellow" | "gray" | "magenta" }> = {
+  planning: { label: "Building understanding", color: "cyan" },
+  exploring: { label: "Gathering information", color: "cyan" },
+  executing: { label: "Making changes", color: "green" },
+  verifying: { label: "Testing & validating", color: "yellow" },
+  refining: { label: "Fixing based on feedback", color: "magenta" },
   idle: { label: "Waiting for your next move", color: "gray" },
 };
 

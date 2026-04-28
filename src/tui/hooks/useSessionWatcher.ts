@@ -276,7 +276,11 @@ export function parseSessionLive(filePath: string, project: string, sessionId: s
     projectedCost: cost.projectedCost,
     costPerMinute: cost.costPerMinute,
     sonnetEquivalentCost: cost.sonnetEquivalentCost,
-    phase: detectPhase(toolBreakdown, recentToolNames),
+    phase: detectPhase(
+      toolBreakdown,
+      recentToolNames,
+      events.slice(-20).filter((e): e is typeof e & { toolName: string } => !!e.toolName),
+    ),
     contextHistory: [],
     costHistory: [],
   };
