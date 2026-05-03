@@ -4,7 +4,7 @@
   "description": "AI Observatory — monitor what your AI coding assistant is actually doing. Costs, context, tool calls, drift, and more.",
   "type": "module",
   "bin": {
-    "rasad": "./dist/cli.js"
+    "rasad": "dist/cli.js"
   },
   "scripts": {
     "build": "npm run build:cli && npm run build:dashboard",
@@ -41,7 +41,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shami-ah/rasad"
+    "url": "git+https://github.com/shami-ah/rasad.git"
   },
   "files": [
     "dist/cli.js",
