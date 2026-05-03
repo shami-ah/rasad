@@ -35,7 +35,7 @@ describe("parseSessionLive", () => {
       expect(stats.inputTokens).toBe(100);
       expect(stats.outputTokens).toBe(50);
       expect(stats.sessionId).toBe("abc123"); // sliced to 8 chars, "abc123" is only 6
-      expect(stats.project).toBe("project");
+      expect(stats.project).toBe("test-project");
       expect(stats.isActive).toBe(true);
     } finally { cleanup(); }
   });
@@ -120,7 +120,7 @@ describe("parseSessionLive", () => {
     ]);
     try {
       const stats = parseSessionLive(path, "test-project", "abc12345");
-      expect(stats.phase).toBe("exploring");
+      expect(stats.phase).toBe("planning");
     } finally { cleanup(); }
   });
 

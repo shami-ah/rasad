@@ -1,7 +1,7 @@
 {
-  "name": "rasad",
-  "version": "0.1.0",
-  "description": "AI Observatory for Developers — monitor what your AI coding assistant is actually doing",
+  "name": "rasad-ai",
+  "version": "1.0.0",
+  "description": "AI Observatory — monitor what your AI coding assistant is actually doing. Costs, context, tool calls, drift, and more.",
   "type": "module",
   "bin": {
     "rasad": "./dist/cli.js"
@@ -24,11 +24,19 @@
     "llm",
     "observability",
     "claude",
+    "claude-code",
     "developer-tools",
     "analytics",
     "token-usage",
-    "ai-safety"
+    "ai-safety",
+    "ai-observatory",
+    "coding-assistant",
+    "session-monitoring",
+    "cost-tracking",
+    "context-window",
+    "devtools"
   ],
+  "homepage": "https://github.com/shami-ah/rasad#readme",
   "author": "Engr Ahtesham Ahmad <iamshami1996@gmail.com>",
   "license": "MIT",
   "repository": {

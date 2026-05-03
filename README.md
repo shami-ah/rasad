@@ -1,60 +1,85 @@
 # Rasad (رصد) — AI Observatory for Developers
 
-> Monitor what your AI coding assistant is actually doing.
+[![npm version](https://img.shields.io/npm/v/rasad-ai.svg)](https://www.npmjs.com/package/rasad-ai)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
-Rasad is a **local-first** CLI + web dashboard that ingests your AI coding sessions and gives you full visibility into costs, context window usage, tool calls, code drift, and more.
+> Monitor what your AI coding assistant is actually doing. Costs, context, tool calls, drift, and more.
 
-**Your data never leaves your machine.**
+**Your data never leaves your machine.** Zero outbound network requests. Local SQLite. No telemetry.
 
 ![Overview Dashboard](docs/screenshots/overview.png)
 
-## Why Rasad?
+## The Problem
 
-Tools like `ccusage` count tokens. Rasad shows you **what your AI is actually doing** — which files it touched, how much context it forgot, where it drifted from your patterns, and whether that $85 Opus session was worth it.
+AI coding assistants (Claude Code, Gogaa, Cursor, Copilot) run dozens of tool calls per session, burn through tokens, and make decisions you never see. There is no way to know:
+
+- Where your money is going
+- Whether the AI forgot your requirements mid-conversation
+- What files it actually changed and why
+- If it's contradicting patterns from earlier sessions
+
+**Rasad answers all of these.** It's the first open-source AI session observatory on npm.
+
+## Quick Start
+
+```bash
+npx rasad-ai
+```
+
+That's it. Rasad auto-detects your Claude Code sessions at `~/.claude/projects/` and syncs immediately.
+
+```bash
+# Or install globally
+npm install -g rasad-ai
+rasad dashboard    # Web dashboard on localhost:9847
+rasad watch        # Live TUI in your terminal
+```
+
+## What You Get
+
+### Web Dashboard (15 pages)
 
 | Feature | What It Answers |
 |---|---|
 | **Token Karma** | Where is my money going? Which model costs the most? |
 | **Ghost Context** | Did the AI forget my requirements mid-conversation? |
-| **Trajectory** | What did the AI do step-by-step? Every tool call visualized |
+| **Trajectory** | Step-by-step execution tree. Every tool call visualized. |
 | **Session Passport** | Quick summary: files changed, decisions made, key moments |
 | **Drift Detector** | Is the AI contradicting patterns from earlier sessions? |
-| **Vibe Diff** | Reviewable artifact of what the AI changed — like a PR for AI |
-| **Model Compare** | Which model gives the best value? Head-to-head comparison |
+| **Vibe Diff** | Reviewable artifact of what the AI changed |
+| **Model Compare** | Which model gives the best value? Head-to-head. |
 | **Search** | Find any past conversation across all sessions |
 
-## Quick Start
+![Spending Breakdown](docs/screenshots/karma.png)
 
-```bash
-# Just run it — auto-detects your data and syncs on first run
-npx rasad
+![Session Timeline](docs/screenshots/timeline.png)
 
-# Or install globally
-npm install -g rasad
-rasad dashboard
-```
+### Terminal TUI (`rasad watch`)
 
-That's it. Rasad automatically finds your Claude Code sessions at `~/.claude/projects/` and Gogaa sessions at `~/.gogaa/sessions/`.
+Full-screen interactive terminal UI with:
+- Live session feed as your AI works
+- Phase detection (planning / exploring / executing / verifying / refining)
+- Real-time cost tracking per session
+- Tool call breakdown with outcomes
+- Smart coaching tips based on session patterns
 
-## Screenshots
+### X-Ray Mode
 
-### Spending Breakdown
-See where your AI budget goes — by model, by project, daily trends.
+Real-time action viewer showing exactly what your AI is doing right now:
+- Every tool call with arguments and outcomes
+- File diffs as they happen
+- Context window utilization
+- Available across TUI, dashboard, and API
 
-![Token Karma](docs/screenshots/karma.png)
-
-### Session Timeline
-Browse every AI session with filters. Click to drill into any session.
-
-![Timeline](docs/screenshots/timeline.png)
-
-## CLI
+### CLI Commands
 
 Every feature is available in both the web dashboard and the CLI:
 
 ```bash
 rasad                    # Quick summary of your AI activity
 rasad dashboard          # Open the web dashboard (localhost:9847)
+rasad watch              # Live TUI — full-screen terminal dashboard
 rasad sync               # Re-sync latest sessions
 rasad karma              # Cost breakdown in your terminal
 rasad timeline           # List recent sessions
@@ -67,7 +92,7 @@ rasad compare            # Head-to-head model comparison
 rasad search <query>     # Full-text search across all conversations
 ```
 
-### CLI Examples
+#### Examples
 
 ```bash
 # How much am I spending?
@@ -87,10 +112,6 @@ $ rasad passport 6ebac107
 # Export a session as Markdown
 $ rasad passport 6ebac107 --md
   Exported to passport-6ebac107.md
-
-# Search for anything
-$ rasad search "authentication"
-  8 results across 3 sessions
 ```
 
 ## Data Sources
@@ -99,39 +120,42 @@ $ rasad search "authentication"
 |---|---|---|
 | **Claude Code** | `~/.claude/projects/**/*.jsonl` | Supported |
 | **Gogaa CLI** | `~/.gogaa/sessions/*.json` | Supported |
-| More coming | Cursor, Copilot, Aider, ChatGPT | Planned |
+| **Aider** | `~/.aider/sessions/*.jsonl` | Supported |
+| Cursor | SQLite DB | Planned |
+| Copilot | — | Planned |
 
 ## How It Works
 
-1. **Sync** — Rasad reads your AI session files (JSONL/JSON) and parses every message, tool call, and token count
-2. **Store** — Everything goes into a local SQLite database at `~/.rasad/rasad.db` with full-text search
+1. **Sync** — Reads AI session files (JSONL/JSON) and parses every message, tool call, and token count
+2. **Store** — Local SQLite database at `~/.rasad/rasad.db` with full-text search (FTS5)
 3. **Analyze** — 8 analysis engines compute costs, context usage, drift patterns, and session summaries
-4. **Visualize** — Web dashboard on localhost or CLI output in your terminal
-5. **Live** — File watcher auto-syncs new sessions while the dashboard runs
+4. **Visualize** — Web dashboard on localhost or CLI output or full-screen TUI
+5. **Live** — File watcher auto-syncs new sessions in real-time via WebSocket
 
 ### Performance
 
 - First sync: ~18 seconds for 1,900 sessions (700MB+ of data)
 - Incremental sync: <1 second (only processes new/changed files)
-- Dashboard: instant — all queries hit a local SQLite database
+- Dashboard: instant — all queries hit local SQLite
 
-## Privacy & Security
+## Privacy and Security
 
-- **Zero outbound network requests** — the binary literally cannot phone home
+- **Zero outbound network requests** — the binary cannot phone home
 - **All data stays at `~/.rasad/`** — local SQLite database
-- **No telemetry, no tracking, no cloud** (the optional `rasad summarize` command calls your configured LLM provider)
+- **No telemetry, no tracking, no cloud**
 - **Server binds to 127.0.0.1 only** — no network exposure
 
 ## Tech Stack
 
-- TypeScript + Node.js (ESM)
-- SQLite via better-sqlite3 (WAL mode, FTS5)
-- CLI: Commander
-- Server: Fastify (localhost only)
-- Dashboard: React + Tailwind CSS + Recharts
-- Build: esbuild (CLI) + Vite (dashboard)
-- Live updates: WebSocket (auto-refresh on new sessions)
-- Tests: Vitest
+- **Runtime**: TypeScript + Node.js (ESM)
+- **Database**: SQLite via better-sqlite3 (WAL mode, FTS5 full-text search)
+- **CLI**: Commander
+- **TUI**: React Ink (full-screen interactive terminal)
+- **Server**: Fastify (localhost only)
+- **Dashboard**: React + Tailwind CSS + Recharts
+- **Build**: esbuild (CLI) + Vite (dashboard)
+- **Live updates**: WebSocket (auto-refresh on new sessions)
+- **Tests**: Vitest (63 tests)
 
 ## Development
 
@@ -141,34 +165,32 @@ cd rasad
 npm install
 cd dashboard && npm install && cd ..
 
-# Build everything
-npm run build
-
-# Development
+npm run build            # Build everything
 npm run dev              # Watch CLI changes
 npm run dev:dashboard    # Vite dev server for dashboard
-
-# Test
-npm test
-
-# Type check
-npm run typecheck
+npm test                 # Run tests
+npm run typecheck        # Type check
 ```
 
 ## Roadmap
 
 - [x] Claude Code adapter
 - [x] Gogaa CLI adapter
-- [x] Web dashboard (9 pages)
-- [x] 10 CLI commands
+- [x] Aider adapter
+- [x] Web dashboard (15 pages)
+- [x] Full-screen TUI (`rasad watch`)
+- [x] X-Ray mode (real-time action viewer)
+- [x] 10+ CLI commands
 - [x] Full-text search (FTS5)
 - [x] Live sync (file watcher + WebSocket)
+- [x] CAMEL-aligned phase detection
+- [x] Proactive alerts and anomaly detection
 - [x] Markdown export
 - [ ] Cursor adapter (SQLite DB parsing)
 - [ ] Copilot adapter
 - [ ] Browser extension (ChatGPT, Claude.ai)
 - [ ] AI-powered session summaries
-- [ ] Team sharing
+- [ ] Team sharing and multi-developer dashboards
 
 ## License
 
@@ -176,4 +198,4 @@ MIT
 
 ## Author
 
-**Engr Ahtesham Ahmad** — [GitHub](https://github.com/shami-ah) | [Portfolio](https://portfolio-site-alpha.pages.dev)
+**Engr Ahtesham Ahmad** — [GitHub](https://github.com/shami-ah) | [Portfolio](https://ahtesham.dev.wadwarehouse.com)
