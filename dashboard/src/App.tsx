@@ -69,7 +69,7 @@ function Sidebar(): React.ReactElement {
       <div className="p-4 border-b border-zinc-800">
         <div className="flex items-center gap-2">
           <span className="font-bold text-white tracking-tight text-base">Rasad</span>
-          <span className="text-[10px] text-zinc-600 font-mono">v0.1</span>
+          <span className="text-[10px] text-zinc-600 font-mono">v1.0</span>
         </div>
         <p className="text-[10px] text-zinc-600 mt-0.5">See, understand, and steer your AI work</p>
       </div>

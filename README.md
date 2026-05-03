@@ -8,7 +8,6 @@
 
 **Your data never leaves your machine.** Zero outbound network requests. Local SQLite. No telemetry.
 
-![Overview Dashboard](docs/screenshots/overview.png)
 
 ## The Problem
 
@@ -51,9 +50,6 @@ rasad watch        # Live TUI in your terminal
 | **Model Compare** | Which model gives the best value? Head-to-head. |
 | **Search** | Find any past conversation across all sessions |
 
-![Spending Breakdown](docs/screenshots/karma.png)
-
-![Session Timeline](docs/screenshots/timeline.png)
 
 ### Terminal TUI (`rasad watch`)
 
