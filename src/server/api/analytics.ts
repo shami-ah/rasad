@@ -178,12 +178,12 @@ export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Datab
       "SELECT COUNT(DISTINCT file_path) as c FROM files_touched"
     ).get() as { c: number }).c;
 
-    // Recent activity (last 7 days)
+    // Recent activity (last 7 days with data)
     const recentDaily = db.prepare(`
       SELECT DATE(started_at) as date, COUNT(*) as sessions,
              SUM(message_count) as messages, SUM(estimated_cost_usd) as cost
       FROM sessions
-      WHERE started_at >= DATE('now', '-7 days')
+      WHERE started_at >= (SELECT DATE(MAX(started_at), '-6 days') FROM sessions)
       GROUP BY DATE(started_at) ORDER BY date ASC
     `).all();
 
@@ -195,9 +195,9 @@ export function registerAnalyticsRoutes(app: FastifyInstance, db: Database.Datab
 
     const opsSummary = db.prepare(`
       SELECT
-        SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END) as favorite_count,
-        SUM(CASE WHEN needs_follow_up = 1 THEN 1 ELSE 0 END) as follow_up_count,
-        SUM(CASE WHEN is_pinned = 1 THEN 1 ELSE 0 END) as pinned_count,
+        COALESCE(SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END), 0) as favorite_count,
+        COALESCE(SUM(CASE WHEN needs_follow_up = 1 THEN 1 ELSE 0 END), 0) as follow_up_count,
+        COALESCE(SUM(CASE WHEN is_pinned = 1 THEN 1 ELSE 0 END), 0) as pinned_count,
         (SELECT COUNT(*) FROM session_notes) as note_count
       FROM session_ops
     `).get() as Record<string, unknown>;

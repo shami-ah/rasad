@@ -381,6 +381,15 @@ export function Overview(): React.ReactElement {
     queryFn: api.integrations,
   });
 
+  const recentSessions = data?.recentSessions ?? [];
+  const prioritySessions = data?.prioritySessions ?? [];
+  const attentionSessions = useMemo(
+    () => (prioritySessions.length > 0
+      ? prioritySessions
+      : [...recentSessions].filter((session) => attentionScore(session) > 0).sort((a, b) => attentionScore(b) - attentionScore(a)).slice(0, 3)),
+    [prioritySessions, recentSessions],
+  );
+
   if (isLoading || !data) {
     return <Loading message="Loading your AI control surface..." />;
   }
@@ -393,18 +402,10 @@ export function Overview(): React.ReactElement {
   const avgDailyCost = recentDaily.length > 0
     ? recentDaily.reduce((sum, day) => sum + day.cost, 0) / recentDaily.length
     : 0;
-  const recentSessions = data.recentSessions ?? [];
   const activeAgents = (integrations?.tools ?? [])
     .filter((tool) => tool.adapterReady && (tool.detected || tool.importedSessionCount > 0))
     .slice(0, 4);
   const activeCount = recentSessions.filter((session) => getSessionStatus(session) === "active").length;
-  const prioritySessions = data.prioritySessions ?? [];
-  const attentionSessions = useMemo(
-    () => (prioritySessions.length > 0
-      ? prioritySessions
-      : [...recentSessions].filter((session) => attentionScore(session) > 0).sort((a, b) => attentionScore(b) - attentionScore(a)).slice(0, 3)),
-    [prioritySessions, recentSessions],
-  );
   const latestSession = recentSessions[0];
   const opsSummary = data.opsSummary ?? { favorite_count: 0, follow_up_count: 0, pinned_count: 0, note_count: 0 };
 

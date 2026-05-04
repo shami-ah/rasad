@@ -1,10 +1,10 @@
 {
   "name": "rasad-ai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI Observatory — monitor what your AI coding assistant is actually doing. Costs, context, tool calls, drift, and more.",
   "type": "module",
   "bin": {
-    "rasad": "dist/cli.js"
+    "rasad": "./dist/cli.js"
   },
   "scripts": {
     "build": "npm run build:cli && npm run build:dashboard",
